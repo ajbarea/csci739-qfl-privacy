@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pdf
+*.aux
+*.log
+*.out
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+COMMITS.md

@@ -1,0 +1,6 @@
+# uv run python spike/gradient_inversion.py   (4 qubits, 1 sample, label known, random untrained θ,
+# 5 seeds x 5 L-BFGS-B restarts; recon_err = ||cos x' - cos x||, match = final gradient-matching loss)
+reps=1 layers=1 params=  8  recon_err=[1.987 2.22  1.61  1.414 1.331]  match=['6e-17', '2e-19', '6e-25', '1e-18', '1e-16']  5s
+reps=1 layers=4 params= 32  recon_err=[0.    0.    0.    0.    0.017]  match=['2e-13', '2e-14', '6e-14', '7e-12', '9e-10']  52s
+reps=4 layers=1 params= 32  recon_err=[0. 0. 0. 0. 0.]  match=['6e-15', '6e-12', '3e-14', '3e-12', '2e-12']  63s
+reps=4 layers=4 params=128  recon_err=[2.968 0.    0.    0.    0.   ]  match=['1e+01', '1e-12', '4e-13', '2e-15', '2e-14']  195s
