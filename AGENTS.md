@@ -10,7 +10,7 @@ this repo is public, the class repo is not.
 
 | | |
 |---|---|
-| Proposal | myCourses assignment, due 2026-10-09 23:59 (week 7). Text in `proposal.md` |
+| Proposal | myCourses assignment, due 2026-10-09 23:59 (week 7). `proposal/proposal.tex`, built with `/techne:latex` |
 | Report | LaTeX, methodology + findings (syllabus requirement) |
 | Talk | In class, weeks 12-14 |
 

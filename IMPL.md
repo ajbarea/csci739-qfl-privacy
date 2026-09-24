@@ -21,4 +21,4 @@ always have zero gradient.
 
 ## Next
 
-📋 Submit `proposal.md` on myCourses before 2026-10-09 23:59.
+📋 Upload `proposal/proposal.pdf` to the myCourses final-project-proposal assignment (Vogt asked for it 2026-09-24; due 2026-10-09 23:59).

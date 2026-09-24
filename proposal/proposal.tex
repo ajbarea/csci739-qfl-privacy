@@ -1,0 +1,136 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{braket}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[compact]{titlesec}
+\usepackage[hidelinks]{hyperref}
+
+\setlist[itemize]{left=1.25em, itemsep=2pt}
+\setlist[enumerate]{left=1.25em, itemsep=2pt}
+
+\begin{document}
+\begin{center}
+  {\Large When Do Variational Quantum Circuits\\ Keep Federated Training Data Private?}\\[6pt]
+  CSCI-739 Quantum Machine Learning, Final Project Proposal\\[2pt]
+  AJ Barea, \texttt{ajb6289@rit.edu}, September 24, 2026
+\end{center}
+
+\section*{Motivation}
+
+In federated learning, clients train a shared model without sending their data: each client
+computes a gradient on its own examples and sends only that gradient to a server, which
+aggregates them~\cite{mcmahan2017}. On classical neural networks this protection is weak. An
+attacker holding the model and one client's gradient can optimize a dummy input until its
+gradient matches the observed one, recovering the private training example~\cite{zhu2019}.
+
+Whether the same attack works on variational quantum circuits (VQCs) is an open question, and
+the literature disagrees. Kumar et al.~\cite{kumar2023} argue that expressive data encodings
+make inversion intractable: recovering the input means solving systems of high-degree
+multivariate Chebyshev polynomials, and an underparameterized attacker faces exponentially many
+spurious local minima. Papadopoulos et al.~\cite{papadopoulos2025} then reconstruct inputs from
+VQC gradients numerically, including batch-trained data, once the model is sufficiently
+overparameterized. Heredge et al.~\cite{heredge2025} connect privacy to the circuit's dynamical
+Lie algebra and find that the properties that make a VQC trainable also make its input easier to
+extract. This project measures where each of these claims holds.
+
+\section*{Research questions}
+
+\begin{enumerate}[label=\textbf{RQ\arabic*.}, left=2.5em]
+  \item At a fixed parameter count, how does attack success change between a more expressive
+        encoding (more data re-uploading layers~\cite{perezsalinas2020}) and a deeper trainable
+        block?
+  \item How do batch size, an unknown label, and a trained (rather than random) model change
+        attack success?
+  \item Does realistic device noise degrade the attack enough to act as a defense, and what
+        does it cost in trainability?
+\end{enumerate}
+
+\section*{Method}
+
+\begin{itemize}
+  \item \textbf{Model.} Angle encoding with $R_Y$ rotations, repeated $r$ times (data
+        re-uploading), interleaved with $\ell$ trainable blocks of $R_Y R_Z$ rotations and a CNOT
+        chain. The output is the mean of $\braket{Z}$ over all qubits, so every input feature
+        reaches the gradient. Four qubits first, then eight.
+  \item \textbf{Threat model.} An honest-but-curious server knows the circuit and its parameters
+        and observes one client's gradient.
+  \item \textbf{Attack.} Gradient matching~\cite{zhu2019}: minimize the squared distance between
+        the observed gradient and the gradient of a candidate input, using L-BFGS-B with random
+        restarts, differentiating through the simulator.
+  \item \textbf{Outcomes.} Each attack is classified as \emph{recovered} (input found, distance
+        measured modulo $2\pi$), \emph{ambiguous} (a different input with the same gradient), or
+        \emph{stuck} (a local minimum). I report success rates with ranges over many random
+        seeds, and count only parameters whose gradient is nonzero.
+  \item \textbf{Noise.} Shot noise, then Qiskit Aer noise models built from the calibration data
+        of IBM Heron devices (\texttt{ibm\_kingston}, \texttt{ibm\_fez}, \texttt{ibm\_marrakesh}).
+  \item \textbf{Tools.} PennyLane for the attack, since it needs gradients of gradients; Qiskit
+        Aer for device noise. Code:
+        \url{https://github.com/ajbarea/csci739-qfl-privacy}.
+\end{itemize}
+
+\section*{Preliminary result}
+
+A first run on four qubits (one example, known label, untrained model, five seeds each)
+already separates the three outcomes:
+
+\begin{center}
+\begin{tabular}{@{}lcccc@{}}
+  \toprule
+  Encoding reps $\times$ trainable layers & Parameters & Recovered & Ambiguous & Stuck \\
+  \midrule
+  $1 \times 1$ & 8   & 1 (+1 within 0.07) & 2 & 1 \\
+  $1 \times 4$ & 32  & 5 & 0 & 0 \\
+  $4 \times 1$ & 32  & 3 & 0 & 2 \\
+  $4 \times 4$ & 128 & 4 & 0 & 1 \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+At equal parameter count, the more expressive encoding resisted the attack more often than the
+deeper trainable block, consistent with~\cite{kumar2023}. Five seeds are too few to conclude
+anything; the full study will establish whether this effect holds.
+
+\section*{Deliverables}
+
+A LaTeX report documenting the method and findings, centered on a privacy map of attack success
+over encoding expressivity and parameter count, and an in-class presentation in weeks 12--14.
+
+\begin{thebibliography}{9}
+\setlength{\itemsep}{2pt}
+
+\bibitem{mcmahan2017}
+B.~McMahan, E.~Moore, D.~Ramage, S.~Hampson, and B.~Ag\"uera y Arcas.
+Communication-efficient learning of deep networks from decentralized data.
+In \emph{Proc.\ AISTATS}, PMLR 54:1273--1282, 2017.
+
+\bibitem{zhu2019}
+L.~Zhu, Z.~Liu, and S.~Han.
+Deep leakage from gradients.
+In \emph{Advances in Neural Information Processing Systems 32 (NeurIPS)}, 2019.
+
+\bibitem{kumar2023}
+N.~Kumar, J.~Heredge, C.~Li, S.~Eloul, S.~H.~Sureshbabu, and M.~Pistoia.
+Expressive variational quantum circuits provide inherent privacy in federated learning.
+arXiv:2309.13002, 2023.
+
+\bibitem{papadopoulos2025}
+G.~Papadopoulos, S.~Eloul, Y.~Satsangi, J.~Heredge, N.~Kumar, C.-F.~Chen, and M.~Pistoia.
+A numerical gradient inversion attack in variational quantum neural-networks.
+arXiv:2504.12806, 2025.
+
+\bibitem{heredge2025}
+J.~Heredge, N.~Kumar, D.~Herman, S.~Chakrabarti, R.~Yalovetzky, S.~H.~Sureshbabu, C.~Li, and
+M.~Pistoia.
+Characterizing privacy in quantum machine learning.
+\emph{npj Quantum Information}, 11:80, 2025.
+
+\bibitem{perezsalinas2020}
+A.~P\'erez-Salinas, A.~Cervera-Lierta, E.~Gil-Fuster, and J.~I.~Latorre.
+Data re-uploading for a universal quantum classifier.
+\emph{Quantum}, 4:226, 2020.
+
+\end{thebibliography}
+
+\end{document}
