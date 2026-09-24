@@ -34,6 +34,9 @@ noise.
   for calibrated Heron r2 noise, offline, no IBM account needed.
 - `pennylane.numpy` is generated dynamically, so `ty` cannot see its functions: prefer array methods
   (`(d**2).sum()`) over `pnp.sum`.
+- **Check the light cone before reading a result.** Every input must reach the gradient
+  (`test_every_input_reaches_the_gradient`); a single-qubit observable silently dropped three of four
+  inputs in the first spike. Compare inputs mod 2π, never through cos, which also folds x onto -x.
 - Simulations are CPU-only. AJ's GPU may be busy with other experiments; large sweeps can go
   overnight or to the RIT cluster.
 

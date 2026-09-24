@@ -8,3 +8,5 @@ __pycache__/
 *.fls
 *.synctex.gz
 COMMITS.md
+
+.claude/worktrees/

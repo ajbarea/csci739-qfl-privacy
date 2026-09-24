@@ -25,15 +25,20 @@ Final project for CSCI-739 Quantum Machine Learning, RIT, Fall 2026.
 
 ## First result
 
-A 4-qubit spike (one sample, known label, untrained weights, 5 seeds) already shows three regimes:
+A 4-qubit spike (one sample, known label, untrained weights, 5 seeds) already separates three
+outcomes: the input recovered, a *different* input found with the identical gradient, or the attack
+stuck in a local minimum.
 
-| Trainable parameters | Gradient matched | Input recovered |
-|---|---|---|
-| 8 | yes | no: many inputs share the gradient |
-| 32 | yes | 9 of 10 exact, 1 within 0.02 |
-| 128 | 4 of 5 | 4 of 5; one attack stuck in a local minimum |
+| Encoding reps x trainable layers | Parameters | Recovered | Same gradient, wrong input | Stuck |
+|---|---|---|---|---|
+| 1 x 1 | 8 | 1 of 5, plus 1 within 0.07 | 2 | 1 |
+| 1 x 4 | 32 | 5 of 5 | 0 | 0 |
+| 4 x 1 | 32 | 3 of 5 | 0 | 2 |
+| 4 x 4 | 128 | 4 of 5 | 0 | 1 |
 
-Raw output: [`spike/results-2026-09-24.txt`](spike/results-2026-09-24.txt).
+At equal parameter count, the more expressive encoding (4 x 1) resists the attack more often than
+the deeper trainable block (1 x 4). Raw output:
+[`spike/results-2026-09-24.txt`](spike/results-2026-09-24.txt).
 
 ## Run it
 
