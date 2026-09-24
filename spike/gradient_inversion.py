@@ -24,7 +24,8 @@ def make(reps, layers):
                     qml.RZ(th[r, layer, q, 1], wires=q)
                 for q in range(N - 1):
                     qml.CNOT(wires=[q, q + 1])
-        return qml.expval(qml.PauliZ(0))
+        # Mean Z over all qubits: a single-qubit observable leaves inputs outside its light cone.
+        return qml.expval(qml.s_prod(1 / N, qml.sum(*(qml.Z(q) for q in range(N)))))
 
     def g(x, th, y):  # dL/dθ, L = (f - y)^2
         return qml.grad(lambda t: (circ(x, t) - y) ** 2, argnums=0)(th)
@@ -58,8 +59,8 @@ def attack(reps, layers, restarts, seed):
         for _ in range(restarts)
     ]
     best = min(runs, key=lambda r: r.fun)
-    # RY encoding cannot distinguish x from 2π - x, so compare cos x.
-    return P, best.fun, np.linalg.norm(np.cos(best.x) - np.cos(xs))
+    # RY(x + 2π) = -RY(x), a global phase, so x is only defined mod 2π.
+    return P, best.fun, np.linalg.norm(np.angle(np.exp(1j * (best.x - xs))))
 
 
 if __name__ == "__main__":

@@ -2,15 +2,22 @@
 
 ## Now
 
-Spike done (`spike/gradient_inversion.py`, results `spike/results-2026-09-24.txt`). 4 qubits, one
-sample, known label, untrained θ, 5 seeds x 5 L-BFGS-B restarts:
+Spike done (`spike/gradient_inversion.py`, results `spike/results-2026-09-24.txt`). 4 qubits,
+observable = mean Z over all qubits, one sample, known label, untrained θ, 5 seeds x 5 L-BFGS-B
+restarts, error = circular distance mod 2π:
 
-- 8 params: gradient matched to ~1e-17 but input not recovered. Privacy here is
-  non-identifiability, not hardness.
-- 32 params: 9/10 exact, 1 at recon error 0.017.
-- 128 params: 4/5 exact; one run stuck at match loss 1e+01, the regime Kumar et al. predict.
+- 1x1 (8 params): 1 exact, 1 within 0.07, 2 found a different input with the identical gradient
+  (match ~1e-13: the gradient system has several exact preimages), 1 stuck.
+- 1x4 (32): 5/5 recovered.
+- 4x1 (32): 3/5 recovered, 2 stuck. Same parameter count, more expressive encoding, harder attack.
+- 4x4 (128): 4/5 recovered, 1 stuck.
 
-`tests/test_spike.py` pins the 8-param and 32-param (reps=4) cells at seed 0.
+The first version measured Z on qubit 0 only. Its CNOT chain points away from qubit 0, so at 1x1
+three of four inputs never reached the gradient and the "ambiguous" regime was an artifact.
+`test_every_input_reaches_the_gradient` guards against that class of bug.
+
+Parameter counts include the final block's RZ gates, which sit before a Z-diagonal measurement and
+always have zero gradient.
 
 ## Next
 

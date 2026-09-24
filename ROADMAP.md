@@ -8,6 +8,7 @@
 3. **Device**: shot noise, then Aer noise models from `FakeKingston` / `FakeFez` /
    `FakeMarrakesh`. Does hardware noise act as a free defense?
 4. **Attacker**: restarts budget, and Kumar et al.'s underparameterized attacker model.
+5. **Report effective parameters** (nonzero-gradient count), not raw gate count, on every axis.
 
 ## Deliverables
 
@@ -16,4 +17,5 @@
 
 ## Completed
 
-- 2026-09-24: 4-qubit spike shows three regimes (ambiguous / recoverable / hard); repo scaffolded.
+- 2026-09-24: 4-qubit spike separates recovered / same-gradient-wrong-input / stuck; at 32 params
+  the expressive encoding resists more often. First version's light-cone artifact found and fixed.
