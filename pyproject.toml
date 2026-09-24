@@ -1,5 +1,30 @@
 [project]
 name = "csci739-qfl-privacy"
 version = "0.1.0"
-requires-python = ">=3.11"
-dependencies = ["pennylane", "scipy", "qiskit", "qiskit-aer", "qiskit-ibm-runtime"]
+description = "When do variational quantum circuits keep federated training data private?"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "pennylane>=0.45",
+    "scipy>=1.16",
+    "qiskit>=2.5",
+    "qiskit-aer>=0.17",
+    "qiskit-ibm-runtime>=0.40",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.13", "ty>=0.0.1a20"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore:'return' in a 'finally' block:SyntaxWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "W", "C4", "T20", "PERF", "RUF", "PIE"]
+
+[tool.ruff.lint.per-file-ignores]
+"spike/*" = ["N803", "N806"]

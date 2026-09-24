@@ -1,9 +1,10 @@
 # csci739-qfl-privacy
 
 AJ's CSCI-739 (Quantum Machine Learning, Dr. Ryan Vogt, RIT Fall 2026) final project: **when do
-variational quantum circuits keep a federated client's training data private?** Course notes and
-homework live in the sibling `csci739-quantum-machine-learning` repo; read its `AGENTS.md` for
-course facts.
+variational quantum circuits keep a federated client's training data private?** Public sister repo.
+Course notes and homework live in the private `~/ajsoftworks/classes/csci739-quantum-machine-learning`;
+read its `AGENTS.md` for course facts. **Never copy lecture transcripts or classmates' names here**:
+this repo is public, the class repo is not.
 
 ## Deliverables
 
@@ -25,20 +26,15 @@ noise.
 
 ## Toolchain
 
+- uv, ruff (format + check), ty, pytest. CI runs exactly those on 3.12-3.14.
 - **PennyLane `default.qubit`, `diff_method="backprop"`** for the attack. It needs the gradient of a
   gradient-matching loss (second-order autodiff); Qiskit's parameter-shift path made the first spike
   impractically slow.
 - **Qiskit Aer + `qiskit_ibm_runtime.fake_provider`** (`FakeKingston`, `FakeFez`, `FakeMarrakesh`)
   for calibrated Heron r2 noise, offline, no IBM account needed.
-- `uv run python spike/gradient_inversion.py` reproduces the spike.
+- `pennylane.numpy` is generated dynamically, so `ty` cannot see its functions: prefer array methods
+  (`(d**2).sum()`) over `pnp.sum`.
+- Simulations are CPU-only. AJ's GPU may be busy with other experiments; large sweeps can go
+  overnight or to the RIT cluster.
 
-## Spike (2026-09-24)
-
-`spike/results-2026-09-24.txt`. 4 qubits, one sample, known label, untrained θ, 5 seeds:
-
-- 8 params: gradient matched to ~1e-17 yet input **not** recovered. Many inputs give the same
-  gradient, so privacy here comes from non-identifiability, not hardness.
-- 32 params (either more reps or more layers): input recovered exactly in 10/10.
-- 128 params: 4/5 recovered, one stuck in a local minimum (match loss 1e+01) with 5 restarts.
-
-Not yet tested: batches, unknown labels, trained θ, 8+ qubits, shot noise, device noise.
+State and next steps: `IMPL.md`. Long view: `ROADMAP.md`.
