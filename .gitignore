@@ -7,6 +7,8 @@ __pycache__/
 *.fdb_latexmk
 *.fls
 *.synctex.gz
+*.bbl
+*.blg
 COMMITS.md
 
 .claude/worktrees/
