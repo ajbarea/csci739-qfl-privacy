@@ -13,7 +13,7 @@
 ## Deliverables
 
 - Privacy map figure: recovery rate over (params, encoding reps), regimes marked.
-- LaTeX report, in-class talk.
+- LaTeX report in IEEE QCE format (`report/`), written so it can go to QCE's QML track; in-class talk.
 
 ## Completed
 

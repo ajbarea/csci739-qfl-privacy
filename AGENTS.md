@@ -11,7 +11,7 @@ this repo is public, the class repo is not.
 | | |
 |---|---|
 | Proposal | myCourses assignment, due 2026-10-09 23:59 (week 7). `proposal/proposal.tex`, built with `/techne:latex` |
-| Report | LaTeX, methodology + findings (syllabus requirement) |
+| Report | LaTeX, methodology + findings (syllabus requirement). `report/report.tex` on the IEEE QCE template (`IEEEtran` conference; full paper 8-10 pages + 2 of references), built with `/techne:latex` |
 | Talk | In class, weeks 12-14 |
 
 Grade weight: 25% of the course.
