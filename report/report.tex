@@ -1,0 +1,83 @@
+% IEEE Quantum Week (QCE) technical paper format: full paper 8-10 pages including figures,
+% tables and appendices, plus up to 2 pages of references.
+\documentclass[10pt,conference]{IEEEtran}
+\usepackage{amsmath, amssymb}
+\usepackage{braket}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+% An unfilled section prints FILL, which the /techne:latex draft-marker gate blocks.
+\newcommand{\fillin}[1]{\textcolor{red}{\textbf{FILL:} #1}}
+
+\begin{document}
+
+\title{When Do Variational Quantum Circuits\\ Keep Federated Training Data Private?}
+
+\author{\IEEEauthorblockN{AJ Barea}
+\IEEEauthorblockA{Rochester Institute of Technology\\
+Rochester, NY, USA\\
+ajb6289@rit.edu}}
+
+\maketitle
+
+\begin{abstract}
+\fillin{Question, method, the regimes found, and what they mean for claims of inherent privacy.}
+\end{abstract}
+
+\begin{IEEEkeywords}
+federated learning, gradient inversion, variational quantum circuits, privacy
+\end{IEEEkeywords}
+
+\section{Introduction}
+\fillin{Federated learning sends gradients, not data~\cite{mcmahan2017}; gradient matching inverts
+them on classical networks~\cite{zhu2019}. For VQCs the literature disagrees: inherent
+privacy~\cite{kumar2023}, numerical inversion once overparameterized~\cite{papadopoulos2025}, and
+the trainability-privacy link~\cite{heredge2025}. Contributions.}
+
+\section{Background and Related Work}
+\subsection{Gradient Inversion in Federated Learning}
+\fillin{Threat, gradient matching, why it works on classical models.}
+\subsection{Variational Quantum Circuits and Data Re-uploading}
+\fillin{Angle encoding, re-uploading~\cite{perezsalinas2020}, trainable blocks.}
+\subsection{Competing Claims for VQCs}
+\fillin{Kumar et al., Papadopoulos et al., Heredge et al., and where each should hold.}
+
+\section{Threat Model}
+\fillin{Honest-but-curious server that knows the circuit and its parameters and observes one
+client's gradient.}
+
+\section{Method}
+\subsection{Circuit}
+\fillin{RY angle encoding repeated $r$ times, $\ell$ trainable RY RZ blocks with a CNOT chain,
+output the mean of $\braket{Z}$ over all qubits. Four qubits, then eight.}
+\subsection{Attack}
+\fillin{Gradient matching with L-BFGS-B, random restarts, differentiating through the simulator.}
+\subsection{Outcomes}
+\fillin{Recovered (distance modulo $2\pi$), ambiguous (a different input with the same gradient),
+or stuck. Rates with ranges over seeds; effective parameters counted as those with nonzero
+gradient.}
+
+\section{Experiments}
+\subsection{RQ1: Encoding Versus Depth}
+\fillin{Fixed parameter count, more re-uploading layers versus a deeper trainable block.}
+\subsection{RQ2: Client Conditions}
+\fillin{Batch size, unknown label optimized jointly, trained versus random parameters.}
+\subsection{RQ3: Device Noise}
+\fillin{Shot noise, then fake-backend noise models. Does noise defend, and at what cost to
+trainability?}
+
+\section{Results}
+\fillin{Privacy map: recovery rate over parameters and encoding repetitions, regimes marked.}
+
+\section{Discussion and Limitations}
+\fillin{What the regimes say about each claim; simulator scale; threat-model scope.}
+
+\section{Conclusion}
+\fillin{Answer to the title question.}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
