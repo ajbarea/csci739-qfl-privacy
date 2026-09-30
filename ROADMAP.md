@@ -2,6 +2,9 @@
 
 ## Experiment axes
 
+Proposal commits to axis 1 (4 and 8 qubits) and shot noise; axes 2, device noise and 4 are
+extensions, in that order.
+
 1. **Circuit**: encoding reps x trainable layers, 4 then 8 qubits. Enough seeds and restarts to
    report a success rate with a range, not a single draw.
 2. **Client**: batch size, unknown label (optimized jointly with the input), trained vs random θ.
