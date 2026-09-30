@@ -17,7 +17,8 @@ three of four inputs never reached the gradient and the "ambiguous" regime was a
 `test_every_input_reaches_the_gradient` guards against that class of bug.
 
 Parameter counts include the final block's RZ gates, which sit before a Z-diagonal measurement and
-always have zero gradient.
+always have zero gradient: effective (nonzero-gradient) counts are 4 / 28 / 28 / 124,
+measured 2026-09-30 over 5 random (x, θ). The proposal reports these.
 
 ## Next
 
