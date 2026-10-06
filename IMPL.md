@@ -22,6 +22,6 @@ measured 2026-09-30 over 5 random (x, θ). The proposal reports these.
 
 ## Next
 
-📋 Fill `report/report.tex`: a section skeleton on the QCE template, one `\fillin` per section. `/techne:latex` blocks until none remain.
+📋 Fill `report/report.tex`: a section skeleton on the QCE template, one `\fillin` per section. `/graphe:latex` blocks until none remain.
 
 📋 Upload `proposal/proposal.pdf` to the myCourses final-project-proposal assignment (Vogt asked for it 2026-09-24; due 2026-10-09 23:59).
