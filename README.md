@@ -44,10 +44,12 @@ the deeper trainable block (1 x 4). Raw output:
 
 ```bash
 uv sync --all-groups
-uv run python spike/gradient_inversion.py   # the full spike
-uv run pytest -q                            # fast regression of both regimes
+uv run pytest -q
+uv run python -m qflp.sweep --qubits 4 --grid 1x4 4x1 --seeds 20 --out results/demo.jsonl
+uv run python -m qflp.summarize results/demo.jsonl
 ```
 
-The attack uses PennyLane, which differentiates through the simulator (the attack needs the
-gradient of a gradient). Device noise comes from Qiskit Aer with the offline calibration snapshots
+The attack runs on `qflp`, a small JAX statevector simulator, because it needs the gradient of a
+gradient and must compile once per circuit shape. Tests check it against PennyLane's
+`default.qubit`. The original PennyLane spike is kept in `spike/`. Device noise comes from Qiskit Aer with the offline calibration snapshots
 of `ibm_kingston`, `ibm_fez`, and `ibm_marrakesh`, so no IBM Quantum account is required.

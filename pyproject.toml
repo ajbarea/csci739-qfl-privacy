@@ -9,6 +9,7 @@ dependencies = [
     "qiskit>=2.5",
     "qiskit-aer>=0.17",
     "qiskit-ibm-runtime>=0.40",
+    "jax>=0.9",
 ]
 
 [dependency-groups]
