@@ -10,6 +10,7 @@ dependencies = [
     "qiskit-aer>=0.17",
     "qiskit-ibm-runtime>=0.40",
     "jax>=0.9",
+    "matplotlib>=3.10",
 ]
 
 [dependency-groups]

@@ -12,6 +12,12 @@ extensions, in that order.
    `FakeMarrakesh`. Does hardware noise act as a free defense?
 4. **Attacker**: restarts budget, and Kumar et al.'s underparameterized attacker model.
 5. **Report effective parameters** (nonzero-gradient count), not raw gate count, on every axis.
+6. **Encoding family**: Kumar et al.'s "expressive" encoding is an exponential-frequency tower (m
+   qubits per input), not linear re-uploading. Our re-uploading results test a different encoding,
+   so the report must say so. A tower-encoding variant would test their regime directly.
+
+`report/related-work-notes.md` holds the full-text extraction of the three core papers (claims,
+threat models, qualifiers, three different definitions of "overparameterized").
 
 ## Deliverables
 
