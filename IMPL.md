@@ -2,26 +2,32 @@
 
 ## Now
 
-Spike done (`spike/gradient_inversion.py`, results `spike/results-2026-09-24.txt`). 4 qubits,
-observable = mean Z over all qubits, one sample, known label, untrained θ, 5 seeds x 5 L-BFGS-B
-restarts, error = circular distance mod 2π:
+Experiment harness (#10) on `feat/experiment-harness`:
 
-- 1x1 (8 params): 1 exact, 1 within 0.07, 2 found a different input with the identical gradient
-  (match ~1e-13: the gradient system has several exact preimages), 1 stuck.
-- 1x4 (32): 5/5 recovered.
-- 4x1 (32): 3/5 recovered, 2 stuck. Same parameter count, more expressive encoding, harder attack.
-- 4x4 (128): 4/5 recovered, 1 stuck.
+- `qflp/circuit.py`: JAX statevector simulator of the spike's circuit, `lax.scan` over blocks, so it
+  compiles once per shape (<10 s at 8 qubits). Pinned to PennyLane `default.qubit` at 1e-12.
+- `qflp/attack.py`: L-BFGS-B gradient matching, 10 restarts; outcomes recovered (≤0.05 rad, mod
+  2π) / ambiguous (fits as well as the true input) / stuck. The attacker keeps the lowest-loss
+  restart.
+- `qflp/noise.py`: finite-shot parameter-shift client gradient.
+- `qflp/sweep.py` (resumable JSONL), `qflp/summarize.py`, `qflp/figures.py` (all report figures
+  and generated table rows).
 
-The first version measured Z on qubit 0 only. Its CNOT chain points away from qubit 0, so at 1x1
-three of four inputs never reached the gradient and the "ambiguous" regime was an artifact.
-`test_every_input_reaches_the_gradient` guards against that class of bug.
+Results (`results/`, 20 seeds per setting):
 
-Parameter counts include the final block's RZ gates, which sit before a Z-diagonal measurement and
-always have zero gradient: effective (nonzero-gradient) counts are 4 / 28 / 28 / 124,
-measured 2026-09-30 over 5 random (x, θ). The proposal reports these.
+- `rq1.jsonl`, 400 attacks: every 1×ℓ circuit with ℓ ≥ 2 recovered 20/20 at 4 and 8 qubits.
+  At fixed parameters, more encoding reps → more stuck; 8 qubits, 120 effective params: 20, 18,
+  8, 2 recovered for r = 1, 2, 4, 8. r = ℓ = 1 gives a different exact preimage (16/20, 20/20).
+- `rq2.jsonl`, 600 attacks: at 4 qubits, 100 shots still leaves 13-15/20 within 0.2 rad; error
+  falls ~S^-1/2. At 8 qubits, 100 shots protects (median 0.99-2.6 rad); by 1e4 shots 1×4 is back
+  to 20/20 within 0.2 rad. Stuck seeds are the same at every shot count.
+- `budget.jsonl` (running): 50 restarts on 8-qubit 2×1, 4×1, 4×2, 8×1.
+
+`report/report.tex` is drafted from these; only the budget result and the conclusion are FILL.
 
 ## Next
 
-📋 Fill `report/report.tex`: a section skeleton on the QCE template, one `\fillin` per section. `/graphe:latex` blocks until none remain.
+📋 Fill the budget subsection and conclusion; regenerate `report/tables/budget.tex`.
 
-📋 Upload `proposal/proposal.pdf` to the myCourses final-project-proposal assignment (Vogt asked for it 2026-09-24; due 2026-10-09 23:59).
+📋 Extensions in ROADMAP order: batch size and unknown label, trained θ, Aer fake-backend noise,
+tower-encoding variant (Kumar et al.'s regime).
