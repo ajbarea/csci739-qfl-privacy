@@ -131,7 +131,7 @@ def shot_noise(rows: list[dict], out: Path) -> None:
 
 
 def outcome_table(rows: list[dict], out: Path) -> None:
-    """LaTeX rows: qubits, reps x layers, effective params, recovered / close / ambiguous / stuck."""
+    """LaTeX rows: qubits, reps x layers, effective params, then the four outcome counts."""
     lines = [
         f"{s['n_qubits']} & ${s['reps']}\\times{s['layers']}$ & {s['n_effective']} & "
         f"{s['recovered']} & {s['close']} & {s['ambiguous']} & {s['stuck']} \\\\"
