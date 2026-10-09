@@ -35,9 +35,10 @@ layers gave up its input on 20 of 20 seeds. At a fixed parameter count, trading 
 encoding repetitions left the attack stuck in local minima more often. At 8 qubits and 120
 effective parameters, the input was recovered on 20, 18, 8 and 2 of 20 seeds for 1, 2, 4 and 8
 repetitions. Shot noise in the client's gradient protected 8-qubit circuits at 100 shots per
-expectation value, but at $10^4$ shots and above the reconstruction error fell as roughly
-$S^{-1/2}$. \fillin{one sentence on the restart-budget result and what it means for inherent
-privacy.}
+expectation value. For circuits the noiseless attack breaks, the reconstruction error then fell as
+roughly $S^{-1/2}$ in the number of shots $S$. Raising the attacker's budget from 10 to 50 restarts recovered the input on 17--18 of
+20 seeds for three of the four hardest 8-qubit circuits, and on 5 of 20 for the fourth. At this
+scale, encoding repetitions raise the cost of the attack rather than preventing it.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -67,7 +68,9 @@ contributions are:
   (Section~\ref{sec:rq1}).
   \item A measurement of how finite-shot gradient estimates change the attack, from $10^2$ to
   $10^6$ shots per expectation value (Section~\ref{sec:rq2}).
-  \item \fillin{restart-budget contribution.}
+  \item A restart-budget experiment showing that most attacks counted as stuck succeed with more
+  restarts, which turns ``stuck'' into a cost measured in restarts per success
+  (Section~\ref{sec:budget}).
   \item An open-source JAX simulator and attack harness, checked against PennyLane, with every
   attack's raw result committed (\url{https://github.com/ajbarea/csci739-qfl-privacy}).
 \end{itemize}
@@ -255,11 +258,14 @@ line is 0.2~rad.}
 
 \begin{itemize}
   \item \textbf{At 4 qubits, shot noise did not stop the attack.} Even at 100 shots the median error
-  was 0.106--0.168~rad, with 13--15 of 20 seeds within 0.2~rad. Each tenfold increase in shots
+  was 0.137--0.192~rad, with 10--17 of 20 seeds within 0.2~rad. Each tenfold increase in shots
   cut the error by a factor of about 3, close to the $S^{-1/2}$ of the shot noise itself.
-  \item \textbf{At 8 qubits, 100 shots protected every circuit}, with median errors of 0.99--2.6~rad
-  and no seed within 0.2~rad. At $10^4$ shots the $1\times4$ circuit was back to 20 of 20 seeds
-  within 0.2~rad.
+  \item \textbf{At 8 qubits, 100 shots protected every circuit}, with median errors of 1.0--2.4~rad
+  and at most 1 seed of 20 within 0.2~rad. At $10^4$ shots the $1\times4$ circuit was back to 20
+  of 20 seeds within 0.2~rad.
+  \item \textbf{Shot noise did not help the attack past local minima.} The 8-qubit $4\times1$ circuit was
+  stuck on 11--12 of 20 seeds from $10^4$ to $10^6$ shots, the same as its 12 with exact
+  gradients.
   \item \textbf{Noise did not change which seeds got stuck.} The $4\times1$ circuit
   at 4 qubits was stuck on the same 4 seeds with exact gradients and at every shot count from
   $10^2$ to $10^6$, from the same starting points. Those failures come from the loss landscape, not
@@ -267,9 +273,35 @@ line is 0.2~rad.}
 \end{itemize}
 
 \subsection{Attacker Budget}\label{sec:budget}
-\fillin{50 restarts on the stuck-heavy 8-qubit circuits ($2\times1$, $4\times1$, $4\times2$,
-$8\times1$): does a larger budget turn stuck seeds into recovered ones? Table from
-tables/budget.tex.}
+A stuck attack only shows that 10 restarts were not enough. We reran the four 8-qubit circuits with
+the most stuck seeds using 50 restarts (Table~\ref{tab:budget}). The seeds generate the same input,
+parameters and starting points, so the first 10 restarts of each run repeat the RQ1 attack, and
+they reproduce its counts exactly.
+
+\begin{table}[t]
+\caption{Restart budget at 8 qubits: seeds recovered (of 20) by the lowest-loss restart among the
+first 10 and the first 50, and the fraction of all 1000 restarts that found the input.}
+\label{tab:budget}
+\centering
+\begin{tabular}{@{}cccccc@{}}
+\toprule
+Qubits & $r\times\ell$ & Params & 10 restarts & 50 restarts & Per restart \\
+\midrule
+\inputrows{tables/budget.tex}
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{Most stuck seeds were recovered with more restarts.} Recovered seeds rose from 7 to
+  18 ($2\times1$), 8 to 17 ($4\times1$) and 8 to 18 ($4\times2$). Every recovered input matched to
+  the precision of the optimizer.
+  \item \textbf{$8\times1$ stayed hard}, at 5 of 20 seeds, with 1.1\% of restarts succeeding. At
+  that rate an attacker needs about 90 restarts per success on average, against about 13 for
+  $2\times1$ (7.9\%).
+  \item Encoding repetitions therefore lower the per-restart success rate. A restart took a median
+  of 0.87~s on a shared CPU, so 90 restarts cost the attacker under two minutes.
+\end{itemize}
 
 \section{Discussion and Limitations}
 \emph{What the regimes say about each claim.} Encoding repetitions made the attack harder at a fixed
@@ -283,7 +315,11 @@ equations as unknowns ($r = \ell = 1$) the gradient had several exact preimages,
 optimizer could not identify the input.
 
 \emph{Stuck is not private.} A stuck attack failed with this budget, from these starting points. It
-does not show that the input is safe. \fillin{tie to the budget result.}
+does not show that the input is safe. With five times the restarts, most stuck seeds gave up their
+input (Section~\ref{sec:budget}). On these circuits, encoding repetitions behave like a work factor
+for the attacker. Kumar et al.\ predict local minima that grow exponentially in their encoding
+parameter~\cite{kumar2023}. If that holds for re-uploading too, the work factor would grow with
+circuit size, and our two sizes cannot test that.
 
 \emph{Limitations.}
 \begin{itemize}
@@ -299,7 +335,14 @@ does not show that the input is safe. \fillin{tie to the budget result.}
 \end{itemize}
 
 \section{Conclusion}
-\fillin{Answer to the title question once the budget result is in.}
+On simulated 4- and 8-qubit re-uploading circuits, against an attacker who knows the circuit and the
+label, a VQC kept a client's input private in one regime only: too few parameters for the gradient
+to determine the input. Every circuit with more trainable parameters than inputs leaked its input,
+given enough restarts. Moving parameters into encoding repetitions made each attack less likely to
+succeed, down to 1.1\% of restarts for the $8\times1$ circuit, but did not stop a patient attacker.
+Shot noise protected only 8-qubit circuits at about 100 shots per expectation value. Whether a
+client can still train on gradients that noisy, and whether the attacker's cost grows exponentially
+with circuit size as Kumar et al.\ predict, are the questions this setup leaves open.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
