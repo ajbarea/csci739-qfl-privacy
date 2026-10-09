@@ -12,3 +12,4 @@ __pycache__/
 COMMITS.md
 
 .claude/worktrees/
+!report/figures/*.pdf

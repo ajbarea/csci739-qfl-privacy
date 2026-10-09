@@ -23,31 +23,33 @@ trainable layers, batch size, and simulated IBM Heron device noise.
 
 Final project for CSCI-739 Quantum Machine Learning, RIT, Fall 2026.
 
-## First result
+## Results so far
 
-A 4-qubit spike (one sample, known label, untrained weights, 5 seeds) already separates three
-outcomes: the input recovered, a *different* input found with the identical gradient, or the attack
-stuck in a local minimum.
+Gradient-matching attacks on 4- and 8-qubit re-uploading circuits (an attacker who knows the
+circuit, its parameters and the label; one sample; 20 seeds per setting; raw rows in
+[`results/`](results), write-up in [`report/report.tex`](report/report.tex)):
 
-| Encoding reps x trainable layers | Parameters | Recovered | Same gradient, wrong input | Stuck |
-|---|---|---|---|---|
-| 1 x 1 | 8 | 1 of 5, plus 1 within 0.07 | 2 | 1 |
-| 1 x 4 | 32 | 5 of 5 | 0 | 0 |
-| 4 x 1 | 32 | 3 of 5 | 0 | 2 |
-| 4 x 4 | 128 | 4 of 5 | 0 | 1 |
-
-At equal parameter count, the more expressive encoding (4 x 1) resists the attack more often than
-the deeper trainable block (1 x 4). Raw output:
-[`spike/results-2026-09-24.txt`](spike/results-2026-09-24.txt).
+- Every circuit with one encoding layer and two or more trainable layers gave up its input on 20 of
+  20 seeds.
+- At a fixed parameter count, encoding repetitions leave more attacks stuck. At 8 qubits and 120
+  effective parameters, 20, 18, 8 and 2 of 20 seeds were recovered for 1, 2, 4 and 8 repetitions.
+- With 50 restarts instead of 10, most stuck seeds are recovered (8 qubits: 7→18, 8→17, 8→18,
+  2→5). Encoding repetitions raise the attacker's cost; of the four circuits retested, only 8
+  repetitions still held on most seeds.
+- Against 10 restarts, shot noise protects 8-qubit circuits at about 100 shots per expectation
+  value. For circuits the noiseless attack breaks, the reconstruction error then falls as about
+  S^-1/2.
 
 ## Run it
 
 ```bash
 uv sync --all-groups
-uv run python spike/gradient_inversion.py   # the full spike
-uv run pytest -q                            # fast regression of both regimes
+uv run pytest -q
+uv run python -m qflp.sweep --qubits 4 --grid 1x4 4x1 --seeds 3 --out /tmp/qflp-demo.jsonl
+uv run python -m qflp.summarize /tmp/qflp-demo.jsonl
 ```
 
-The attack uses PennyLane, which differentiates through the simulator (the attack needs the
-gradient of a gradient). Device noise comes from Qiskit Aer with the offline calibration snapshots
+The attack runs on `qflp`, a small JAX statevector simulator, because it needs the gradient of a
+gradient and must compile once per circuit shape (`python -m qflp.compile_time` times it). Tests
+check it against PennyLane's `default.qubit`. The original PennyLane spike is kept in `spike/`. Device noise comes from Qiskit Aer with the offline calibration snapshots
 of `ibm_kingston`, `ibm_fez`, and `ibm_marrakesh`, so no IBM Quantum account is required.

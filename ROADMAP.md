@@ -12,6 +12,12 @@ extensions, in that order.
    `FakeMarrakesh`. Does hardware noise act as a free defense?
 4. **Attacker**: restarts budget, and Kumar et al.'s underparameterized attacker model.
 5. **Report effective parameters** (nonzero-gradient count), not raw gate count, on every axis.
+6. **Encoding family**: Kumar et al.'s "expressive" encoding is an exponential-frequency tower (m
+   qubits per input), not linear re-uploading. Our re-uploading results test a different encoding,
+   so the report must say so. A tower-encoding variant would test their regime directly.
+
+`report/related-work-notes.md` holds the full-text extraction of the three core papers (claims,
+threat models, qualifiers, three different definitions of "overparameterized").
 
 ## Deliverables
 
@@ -22,3 +28,7 @@ extensions, in that order.
 
 - 2026-09-24: 4-qubit spike separates recovered / same-gradient-wrong-input / stuck; at 32 params
   the expressive encoding resists more often. First version's light-cone artifact found and fixed.
+- 2026-10-08: JAX harness (#10); RQ1 (400 attacks, 4 and 8 qubits) and RQ2 (600 attacks, 1e2-1e6
+  shots) run with 20 seeds. Encoding reps raise the stuck rate at fixed parameters; shot noise
+  protects only 8-qubit circuits at ~100 shots. Report drafted from the results.
+- 2026-10-09: one-page proposal sent to the instructor.
