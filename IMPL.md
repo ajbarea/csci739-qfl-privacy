@@ -7,7 +7,7 @@ Experiment harness (#10) on `feat/experiment-harness`:
 - `qflp/circuit.py`: JAX statevector simulator of the spike's circuit, `lax.scan` over blocks, so it
   compiles once per shape (<10 s at 8 qubits). Pinned to PennyLane `default.qubit` at 1e-12.
 - `qflp/attack.py`: L-BFGS-B gradient matching, 10 restarts; outcomes recovered (≤0.05 rad, mod
-  2π) / ambiguous (fits as well as the true input) / stuck. The attacker keeps the lowest-loss
+  2π) / close (≤0.2 rad) / ambiguous (further away, fits as well as the true input) / stuck. The attacker keeps the lowest-loss
   restart.
 - `qflp/noise.py`: finite-shot parameter-shift client gradient.
 - `qflp/sweep.py` (resumable JSONL), `qflp/summarize.py`, `qflp/figures.py` (all report figures

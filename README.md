@@ -23,22 +23,20 @@ trainable layers, batch size, and simulated IBM Heron device noise.
 
 Final project for CSCI-739 Quantum Machine Learning, RIT, Fall 2026.
 
-## First result
+## Results so far
 
-A 4-qubit spike (one sample, known label, untrained weights, 5 seeds) already separates three
-outcomes: the input recovered, a *different* input found with the identical gradient, or the attack
-stuck in a local minimum.
+Gradient-matching attacks on 4- and 8-qubit re-uploading circuits (an attacker who knows the
+circuit, its parameters and the label; one sample; 20 seeds per setting; raw rows in
+[`results/`](results), write-up in [`report/report.tex`](report/report.tex)):
 
-| Encoding reps x trainable layers | Parameters | Recovered | Same gradient, wrong input | Stuck |
-|---|---|---|---|---|
-| 1 x 1 | 8 | 1 of 5, plus 1 within 0.07 | 2 | 1 |
-| 1 x 4 | 32 | 5 of 5 | 0 | 0 |
-| 4 x 1 | 32 | 3 of 5 | 0 | 2 |
-| 4 x 4 | 128 | 4 of 5 | 0 | 1 |
-
-At equal parameter count, the more expressive encoding (4 x 1) resists the attack more often than
-the deeper trainable block (1 x 4). Raw output:
-[`spike/results-2026-09-24.txt`](spike/results-2026-09-24.txt).
+- Every circuit with one encoding layer and two or more trainable layers gave up its input on 20 of
+  20 seeds.
+- At a fixed parameter count, encoding repetitions leave more attacks stuck. At 8 qubits and 120
+  effective parameters, 20, 18, 8 and 2 of 20 seeds were recovered for 1, 2, 4 and 8 repetitions.
+- With 50 restarts instead of 10, most stuck seeds are recovered (8 qubits: 7→18, 8→17, 8→18,
+  2→5), so encoding repetitions raise the attacker's cost rather than stopping the attack.
+- Shot noise protects 8-qubit circuits at about 100 shots per expectation value. For circuits the
+  noiseless attack breaks, the reconstruction error then falls as about S^-1/2.
 
 ## Run it
 

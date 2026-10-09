@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-KEY = ("n_qubits", "reps", "layers", "seed", "shots", "batch", "restarts")
+from qflp.summarize import KEY, read_rows
 
 
 def run_one(job: dict) -> dict:
@@ -65,27 +65,22 @@ def run_one(job: dict) -> dict:
 
 
 def _done(path: Path) -> set[tuple]:
-    """Keys of the complete rows in `path`; a partial line from a killed sweep is dropped."""
+    """Keys of the rows already in `path`, after dropping a partial last line."""
     if not path.exists():
         return set()
-    lines = path.read_text().splitlines(keepends=True)
-    good = []
-    for line in lines:
-        try:
-            json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        good.append(line if line.endswith("\n") else line + "\n")
-    if good != lines:
-        path.write_text("".join(good))
-    return {tuple(json.loads(line)[k] for k in KEY) for line in good}
+    return {tuple(row[k] for k in KEY) for row in read_rows(path, repair=True)}
 
 
 def _commit() -> str:
     try:
-        return subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
-        ).stdout.strip()
+
+        def git(*cmd: str) -> str:
+            return subprocess.run(
+                ["git", *cmd], capture_output=True, text=True, check=True
+            ).stdout.strip()
+
+        dirty = git("status", "--porcelain", "--untracked-files=no", "--", "qflp")
+        return git("rev-parse", "--short", "HEAD") + ("+dirty" if dirty else "")
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
 
@@ -101,6 +96,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
+    if args.out.suffix != ".jsonl":
+        ap.error(f"--out must be a .jsonl results file, got {args.out}")
 
     jobs = [
         {

@@ -87,7 +87,7 @@ def privacy_map(rows: list[dict], out: Path, restarts: int = 10) -> None:
     axes[0].set_ylabel("seeds recovered (fraction)")
     fig.tight_layout()
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out)
+    fig.savefig(out, metadata={"CreationDate": None})  # byte-stable across reruns
 
 
 def shot_noise(rows: list[dict], out: Path) -> None:
@@ -127,7 +127,7 @@ def shot_noise(rows: list[dict], out: Path) -> None:
     axes[0].set_ylabel("median error (rad)")
     fig.tight_layout()
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out)
+    fig.savefig(out, metadata={"CreationDate": None})  # byte-stable across reruns
 
 
 def outcome_table(rows: list[dict], out: Path) -> None:
@@ -141,15 +141,21 @@ def outcome_table(rows: list[dict], out: Path) -> None:
     out.write_text("\n".join(lines) + "\n")
 
 
+# Columns of the report's RQ2 table header; the generated rows must fill exactly these.
+SHOTS = (10**2, 10**3, 10**4, 10**5, 10**6)
+
+
 def shots_table(rows: list[dict], out: Path) -> None:
     """LaTeX rows: qubits, reps x layers, then median error and within-CLOSE_RAD count per shots."""
-    summary = table(rows)
+    summary = table([r for r in rows if r["batch"] == 1])
     lines = []
     for n, reps, layers in sorted({(s["n_qubits"], s["reps"], s["layers"]) for s in summary}):
         sel = sorted(
             (s for s in summary if (s["n_qubits"], s["reps"], s["layers"]) == (n, reps, layers)),
             key=lambda s: s["shots"],
         )
+        if tuple(s["shots"] for s in sel) != SHOTS:
+            raise ValueError(f"{n}q {reps}x{layers}: shots {[s['shots'] for s in sel]} != {SHOTS}")
         cells = " & ".join(f"{s['median_error']:.3f} ({s['within_close']})" for s in sel)
         lines.append(f"{n} & ${reps}\\times{layers}$ & {cells} \\\\")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -161,9 +167,12 @@ def budget_table(rows: list[dict], out: Path, budgets: tuple[int, ...] = (10, 50
     budget, and the fraction of all restarts that recover the input."""
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for r in rows:
-        groups[(r["n_qubits"], r["reps"], r["layers"])].append(r)
+        if r["shots"] == 0 and r["batch"] == 1:
+            groups[(r["n_qubits"], r["reps"], r["layers"])].append(r)
     lines = []
     for (n, reps, layers), rs in sorted(groups.items()):
+        if min(r["restarts"] for r in rs) < max(budgets):
+            raise ValueError(f"{n}q {reps}x{layers}: fewer restarts than the {max(budgets)} budget")
         within = [sum(best_outcome(r, b) == "recovered" for r in rs) for b in budgets]
         per = [o == "recovered" for r in rs for o in outcomes(r)]
         cells = " & ".join(f"{w}/{len(rs)}" for w in within)

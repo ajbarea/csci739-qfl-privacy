@@ -9,8 +9,9 @@ import pytest
 from qflp.attack import CLOSE_RAD, RECOVERED_RAD, attack, best_restart, circular_error, classify
 from qflp.circuit import Circuit
 from qflp.noise import shot_gradient
-from qflp.summarize import read_rows, table
+from qflp.summarize import load, read_rows, table
 from qflp.sweep import _done
+from qflp.sweep import main as sweep_main
 
 
 def pennylane_reference(c: Circuit):
@@ -118,12 +119,50 @@ def test_classify():
 
 
 def test_resume_drops_a_partial_last_line(tmp_path):
-    row = {"n_qubits": 4, "reps": 1, "layers": 1, "seed": 0, "shots": 0, "batch": 1, "restarts": 3}
+    row = {"n_qubits": 4, "reps": 1, "layers": 1, "shots": 0, "batch": 1, "restarts": 3, "seed": 0}
     path = tmp_path / "out.jsonl"
     path.write_text(json.dumps(row) + "\n" + json.dumps({**row, "seed": 1})[:20])
     assert _done(path) == {tuple(row.values())}
     assert path.read_text() == json.dumps(row) + "\n"
     assert len(read_rows(path)) == 1
+
+
+def test_resume_refuses_a_file_that_is_not_sweep_rows(tmp_path):
+    path = tmp_path / "notes.jsonl"
+    text = "\\section{Results}\nsome prose\n"
+    path.write_text(text)
+    with pytest.raises(ValueError, match="not a sweep row"):
+        _done(path)
+    assert path.read_text() == text  # never truncated
+
+
+def test_sweep_refuses_a_non_jsonl_output():
+    with pytest.raises(SystemExit):
+        sweep_main(["--out", "report/report.tex", "--seeds", "0"])
+
+
+def test_load_refuses_duplicate_runs(tmp_path):
+    row = {
+        "n_qubits": 4,
+        "reps": 1,
+        "layers": 1,
+        "shots": 0,
+        "batch": 1,
+        "restarts": 1,
+        "seed": 0,
+        "true_match": 0.0,
+        "grad_norm2": 1.0,
+        "restarts_detail": [{"error": 0.0, "match": 0.0, "nit": 1, "outcome": "recovered"}],
+    }
+    path = tmp_path / "a.jsonl"
+    path.write_text(json.dumps(row) + "\n")
+    with pytest.raises(ValueError, match="duplicate"):
+        load([path, path])
+
+
+def test_circular_error_of_a_non_finite_guess_is_infinite():
+    x = np.zeros((2, 3))
+    assert circular_error(np.full((2, 3), np.nan), x) == np.inf
 
 
 def test_deep_trainable_circuit_input_is_recovered():

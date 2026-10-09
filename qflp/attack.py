@@ -27,6 +27,8 @@ def circular_error(x_hat, x_true) -> float:
     assignment, found by bisecting on the threshold with a perfect-matching check.
     """
     x_hat, x_true = np.atleast_2d(x_hat), np.atleast_2d(x_true)
+    if not np.isfinite(x_hat).all():
+        return float("inf")
     diff = np.angle(np.exp(1j * (x_hat[:, None, :] - x_true[None, :, :])))
     dist = np.abs(diff).max(-1)  # dist[i, j]: row i of x_hat against row j of x_true
     levels = np.unique(dist)

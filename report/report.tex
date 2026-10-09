@@ -131,18 +131,19 @@ qubit $q$, then apply $\ell$ trainable blocks. Each block is $R_Y(\theta)R_Z(\th
 followed by a CNOT chain $0\to1\to\dots\to N-1$. The output is
 $f(x;\theta) = \tfrac1N\sum_q\braket{Z_q}$ and the client's loss is $(f - y)^2$ with $y = 1$. A
 single-qubit observable would leave some inputs outside its light cone, so they would never reach
-the gradient. The mean over all qubits avoids that, and a test checks it for every circuit shape.
+the gradient. The mean over all qubits avoids that, and a test checks it on four circuit shapes.
 
 The circuit has $2r\ell N$ parameters. The last block's $R_Z$ gates are followed only by CNOTs and
 a $Z$-diagonal measurement, so they never change the output. We report the
-$2r\ell N - N$ \emph{effective} parameters, and a test confirms that exactly these have nonzero
-gradient. Inputs are drawn uniformly from $[0,\pi)^N$.
+$2r\ell N - N$ \emph{effective} parameters, and a test confirms on three circuit shapes that
+exactly these have nonzero gradient. Inputs are drawn uniformly from $[0,\pi)^N$.
 
 \subsection{Simulator}
 The attack differentiates through a gradient, so it needs second-order automatic differentiation.
-PennyLane~\cite{bergholm2018} with autograd took about 27~s per attack on a 4-qubit circuit with
-$r = \ell = 4$. Compiling the PennyLane circuit with JAX unrolls every gate and took over ten
-minutes for one 8-qubit circuit. We wrote a statevector simulator in JAX~\cite{jax2018} that scans
+PennyLane~\cite{bergholm2018} with autograd took about 27~s for one attack of 5 restarts on a
+4-qubit circuit with $r = \ell = 4$ (the original feasibility spike). Compiling the PennyLane
+circuit with JAX unrolls every gate; for one 8-qubit circuit with $r = \ell = 4$ the compilation
+had not finished after ten minutes when we stopped it. We wrote a statevector simulator in JAX~\cite{jax2018} that scans
 over repetitions and blocks, so it compiles once per circuit shape in under ten seconds. Tests pin
 its output probabilities and gradients to PennyLane's \texttt{default.qubit} within $10^{-12}$.
 
@@ -157,7 +158,7 @@ $[0,\pi)^N$ and keeps the restart with the lowest $\mathcal L$, which is all an 
 the true input can do.
 
 \subsection{Outcomes}
-Each attack ends in one of three outcomes:
+Each attack ends in one of four outcomes:
 \begin{itemize}
   \item \emph{Recovered}: every feature lies within 0.05~rad of the true input, measured modulo
   $2\pi$ because $R_Y(x+2\pi) = -R_Y(x)$ differs only by a global phase.
@@ -170,7 +171,7 @@ Each attack ends in one of three outcomes:
 \end{itemize}
 Under shot noise we also report the median reconstruction error. Outcomes are recomputed from each
 restart's stored error and loss, so a change of threshold needs no rerun. Every setting uses 20 seeds, each
-with its own input and parameters. Intervals in the figures are 95\% Wilson intervals.
+with its own input and parameters. Error bars in Fig.~\ref{fig:map} are 95\% Wilson intervals.
 
 \subsection{Shot Noise}
 For RQ2 the client estimates its gradient as a device would. Each $\partial f/\partial\theta_j$
@@ -213,7 +214,7 @@ Three regimes appear:
   every seed, but on a different input in 16 of 20 seeds at 4 qubits and 20 of 20 at 8 qubits.
   Two of the 16 at 4 qubits lay within 0.14~rad of the truth (``close'' in
   Table~\ref{tab:rq1}).
-  Another restart did find the true input on 14 and 7 of those seeds, but it matched no better
+  Another restart did find the true input on 10 and 7 of those seeds, but it matched no better
   than the wrong one. The gradient does not determine the input here, so the server cannot tell
   which preimage is the client's.
   \item \textbf{One encoding layer, more trainable layers: recovered.} Every $1\times\ell$ circuit
@@ -336,13 +337,15 @@ circuit size, and our two sizes cannot test that.
 
 \section{Conclusion}
 On simulated 4- and 8-qubit re-uploading circuits, against an attacker who knows the circuit and the
-label, a VQC kept a client's input private in one regime only: too few parameters for the gradient
-to determine the input. Every circuit with more trainable parameters than inputs leaked its input,
-given enough restarts. Moving parameters into encoding repetitions made each attack less likely to
-succeed, down to 1.1\% of restarts for the $8\times1$ circuit, but did not stop a patient attacker.
-Shot noise protected only 8-qubit circuits at about 100 shots per expectation value. Whether a
-client can still train on gradients that noisy, and whether the attacker's cost grows exponentially
-with circuit size as Kumar et al.\ predict, are the questions this setup leaves open.
+label, a VQC kept a client's input private on most seeds in two situations. With exactly as many
+effective parameters as inputs, the gradient had several exact preimages. At 8 qubits, a gradient
+estimated from about 100 shots per expectation value was too noisy to invert. Every other circuit
+leaked its input on most seeds within 10 restarts, or within 50 for three of the four circuits we
+retested. Moving parameters into encoding repetitions made each restart less likely to succeed. The
+fourth retested circuit, $8\times1$, succeeded on 1.1\% of restarts and still gave up its input on
+5 of 20 seeds. Whether a
+client can still train on gradients as noisy as 100 shots, and whether the attacker's cost grows
+exponentially with circuit size as Kumar et al.\ predict, are the questions this setup leaves open.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
