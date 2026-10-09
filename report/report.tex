@@ -123,14 +123,17 @@ The server is honest but curious. It follows the FL protocol and tries to learn 
 from what it sees. It knows the circuit architecture, the current parameters $\theta$ (it sent
 them), the observable, the loss, and the label $y$. It observes one client's gradient for a single
 training example. This matches Kumar et al.'s worst case for the client~\cite{kumar2023}. The
-client's parameters are untrained, drawn uniformly from $[0, 2\pi)$.
+client's parameters are untrained, drawn uniformly from $[0, 2\pi)$. Two experiments relax this
+worst case: in RQ3 the client sends the mean gradient over a batch of $B$ examples, and in RQ4 the
+server does not know the labels.
 
 \section{Method}
 \subsection{Circuit}
 On $N$ qubits, the circuit repeats the following $r$ times: encode feature $x_q$ as $R_Y(x_q)$ on
 qubit $q$, then apply $\ell$ trainable blocks. Each block is $R_Y(\theta)R_Z(\theta)$ on every qubit
 followed by a CNOT chain $0\to1\to\dots\to N-1$. The output is
-$f(x;\theta) = \tfrac1N\sum_q\braket{Z_q}$ and the client's loss is $(f - y)^2$ with $y = 1$. A
+$f(x;\theta) = \tfrac1N\sum_q\braket{Z_q}$ and the client's loss is $(f - y)^2$, with $y = 1$
+outside RQ4. A
 single-qubit observable would leave some inputs outside its light cone, so they would never reach
 the gradient. The mean over all qubits avoids that, and a test checks it on four circuit shapes.
 
@@ -157,6 +160,25 @@ with L-BFGS-B~\cite{byrd1995}, using the exact gradient $\nabla_{\hat x}\mathcal
 differentiation, for at most 500 iterations. It starts from 10 points drawn uniformly from
 $[0,\pi)^N$ and keeps the restart with the lowest $\mathcal L$, which is all an attacker without
 the true input can do.
+
+With a batch $X = (x_1,\dots,x_B)$ the client sends the mean gradient
+$g = \frac1B\sum_i \nabla_\theta(f(x_i;\theta) - y_i)^2$, and the attacker solves for all $B$
+inputs at once. The gradient does not reveal the order of the batch, so the reconstruction error
+is the largest feature error under the best matching of reconstructed to true inputs (a bottleneck
+assignment).
+
+Without the labels, the attacker uses the structure of the squared loss: sample $i$ contributes
+$c_i\nabla_\theta f(x_i;\theta)$ with an unknown weight $c_i = 2(f(x_i;\theta) - y_i)/B$. For a
+candidate batch $\hat X$, let $J$ have rows $\nabla_\theta f(\hat x_i;\theta)$. The attacker takes the
+best weights in closed form and minimizes
+\[
+  \mathcal L_{\bar y}(\hat X) = \min_{c\in\mathbb R^B} \big\|J^\top c - g\big\|_2^2,
+\]
+solving the $B\times B$ normal equations with a ridge of $10^{-12}$ times the mean of
+$\|\nabla_\theta f(\hat x_i)\|^2$. For $B = 1$ the loss depends only on the angle between the two
+gradients, as in the cosine matching of Geiping et al.~\cite{geiping2020}. Clients in RQ4 draw
+each $y_i$ from $\{-1, +1\}$, and the same clients are attacked with the labels known for
+comparison.
 
 \subsection{Outcomes}
 Each attack ends in one of four outcomes:
