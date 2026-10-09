@@ -2,6 +2,8 @@
 
     uv run python -m qflp.sweep --qubits 4 8 --grid 1x1 1x2 2x1 --seeds 20 --out results/rq1.jsonl
 
+POSIX only: the output file is locked with flock while a sweep runs.
+
 Resumable: rows already in --out (same qubits, reps, layers, seed, shots, batch, restarts) are
 skipped, so an interrupted sweep continues where it stopped.
 """

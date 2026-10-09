@@ -34,10 +34,11 @@ circuit, its parameters and the label; one sample; 20 seeds per setting; raw row
 - At a fixed parameter count, encoding repetitions leave more attacks stuck. At 8 qubits and 120
   effective parameters, 20, 18, 8 and 2 of 20 seeds were recovered for 1, 2, 4 and 8 repetitions.
 - With 50 restarts instead of 10, most stuck seeds are recovered (8 qubits: 7→18, 8→17, 8→18,
-  2→5). Encoding repetitions raise the attacker's cost; only 8 repetitions still held on most
-  seeds at 50 restarts.
-- Against 10 restarts, shot noise protects 8-qubit circuits at about 100 shots per expectation value. For circuits the
-  noiseless attack breaks, the reconstruction error then falls as about S^-1/2.
+  2→5). Encoding repetitions raise the attacker's cost; of the four circuits retested, only 8
+  repetitions still held on most seeds.
+- Against 10 restarts, shot noise protects 8-qubit circuits at about 100 shots per expectation
+  value. For circuits the noiseless attack breaks, the reconstruction error then falls as about
+  S^-1/2.
 
 ## Run it
 
@@ -49,6 +50,6 @@ uv run python -m qflp.summarize /tmp/qflp-demo.jsonl
 ```
 
 The attack runs on `qflp`, a small JAX statevector simulator, because it needs the gradient of a
-gradient and must compile once per circuit shape. Tests check it against PennyLane's
-`default.qubit`. The original PennyLane spike is kept in `spike/`. Device noise comes from Qiskit Aer with the offline calibration snapshots
+gradient and must compile once per circuit shape (`python -m qflp.compile_time` times it). Tests
+check it against PennyLane's `default.qubit`. The original PennyLane spike is kept in `spike/`. Device noise comes from Qiskit Aer with the offline calibration snapshots
 of `ibm_kingston`, `ibm_fez`, and `ibm_marrakesh`, so no IBM Quantum account is required.

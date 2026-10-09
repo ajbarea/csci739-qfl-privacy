@@ -38,8 +38,8 @@ repetitions. Against 10 restarts, shot noise in the client's gradient protected 
 at 100 shots per expectation value. For circuits the noiseless attack breaks, the reconstruction error then fell as
 roughly $S^{-1/2}$ in the number of shots $S$. Raising the attacker's budget from 10 to 50 restarts recovered the input on 17--18 of
 20 seeds for three of the four hardest 8-qubit circuits, and on 5 of 20 for the fourth. Encoding
-repetitions raise the cost of the attack; only the most repeated circuit still held on most seeds at
-50 restarts.
+repetitions raise the cost of the attack; of the four circuits retested at 50 restarts, only the most
+repeated one still held on most seeds.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -141,10 +141,11 @@ exactly these have nonzero gradient. Inputs are drawn uniformly from $[0,\pi)^N$
 
 \subsection{Simulator}
 The attack differentiates through a gradient, so it needs second-order automatic differentiation.
-PennyLane~\cite{bergholm2018} with autograd took about 27~s for one attack of 5 restarts on a
-4-qubit circuit with $r = \ell = 4$ (the original feasibility spike). Compiling the PennyLane
-circuit with JAX unrolls every gate, so compile time grows with circuit depth. We wrote a statevector simulator in JAX~\cite{jax2018} that scans
-over repetitions and blocks, so it compiles once per circuit shape in under ten seconds. Tests pin
+In the original feasibility spike, PennyLane~\cite{bergholm2018} with autograd took 133~s for five
+attacks of 5 restarts each on a 4-qubit circuit with $r = \ell = 4$. Compiling the PennyLane
+circuit with JAX unrolls every gate, so compile time grows with circuit depth. We wrote a
+statevector simulator in JAX~\cite{jax2018} that scans over repetitions and blocks, so it compiles
+once per circuit shape; at 8 qubits the first call took under ten seconds on a 6-core CPU. Tests pin
 its output probabilities and gradients to PennyLane's \texttt{default.qubit} within $10^{-12}$.
 
 \subsection{Attack}
@@ -341,7 +342,7 @@ label, we asked when the client's input stays private on most seeds.
 
 With exact gradients, two settings kept the input private on most seeds. With exactly as many
 effective parameters as inputs, the gradient had several exact preimages. The 8-qubit $8\times1$
-circuit found the input on 1.1\% of restarts and stayed private on 15 of 20 seeds after 50
+circuit, the attack found the input on 1.1\% of restarts and stayed private on 15 of 20 seeds after 50
 restarts. Every other circuit leaked its input on most seeds within 10 restarts, or within 50 for
 the other three circuits we retested. Moving parameters into encoding repetitions made each restart
 less likely to succeed.
