@@ -35,6 +35,8 @@ noise.
 - `uv run python -m qflp.sweep ... --out results/<name>.jsonl` appends one row per run and skips rows
   already present, so a killed sweep resumes. `python -m qflp.summarize results/*.jsonl` prints the
   outcome table. `results/` is the source of record; prose quotes it, never a console tail.
+- `--label fixed|known|unknown` (docstring of `qflp/sweep.py`): rows from before the label axis
+  load as `fixed` through `qflp.rows.DEFAULTS`. A new row field needs a default there too.
 - **Qiskit Aer + `qiskit_ibm_runtime.fake_provider`** (`FakeKingston`, `FakeFez`, `FakeMarrakesh`)
   for calibrated Heron r2 noise, offline, no IBM account needed.
 - `pennylane.numpy` is generated dynamically, so `ty` cannot see its functions: prefer array methods

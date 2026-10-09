@@ -4,8 +4,10 @@ import json
 import os
 from pathlib import Path
 
-SETTING = ("n_qubits", "reps", "layers", "shots", "batch", "restarts")
+SETTING = ("n_qubits", "reps", "layers", "shots", "batch", "restarts", "label")
 KEY = (*SETTING, "seed")  # one row per run
+# Fields added after the first sweeps, with the value every older row ran under.
+DEFAULTS = {"label": "fixed"}
 # Every row starts with the job's first field, so a cut-off row is a prefix of this or extends it.
 ROW_START = '{"n_qubits": '
 
@@ -30,6 +32,8 @@ def read_rows(path: Path, repair: bool = False) -> list[dict]:
             row = json.loads(line)
         except json.JSONDecodeError:
             row = None
+        if isinstance(row, dict):
+            row = {**DEFAULTS, **row}
         if isinstance(row, dict) and all(k in row for k in KEY):
             rows.append(row)
             if last_unterminated and repair:

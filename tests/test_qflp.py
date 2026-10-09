@@ -7,12 +7,20 @@ import numpy as np
 import pennylane as qml
 import pytest
 
-from qflp.attack import CLOSE_RAD, RECOVERED_RAD, attack, best_restart, circular_error, classify
+from qflp.attack import (
+    CLOSE_RAD,
+    RECOVERED_RAD,
+    attack,
+    best_restart,
+    circular_error,
+    classify,
+    matching_loss,
+)
 from qflp.circuit import Circuit
 from qflp.noise import shot_gradient
-from qflp.rows import KEY, ROW_START, read_rows
+from qflp.rows import DEFAULTS, KEY, ROW_START, read_rows
 from qflp.summarize import load, table
-from qflp.sweep import _done
+from qflp.sweep import _done, run_one
 from qflp.sweep import main as sweep_main
 
 
@@ -124,7 +132,7 @@ def test_resume_drops_a_partial_last_line(tmp_path):
     row = {"n_qubits": 4, "reps": 1, "layers": 1, "shots": 0, "batch": 1, "restarts": 3, "seed": 0}
     path = tmp_path / "out.jsonl"
     path.write_text(json.dumps(row) + "\n" + json.dumps({**row, "seed": 1})[:20])
-    assert _done(path) == {tuple(row.values())}
+    assert _done(path) == {tuple({**DEFAULTS, **row}[k] for k in KEY)}
     assert path.read_text() == json.dumps(row) + "\n"
     assert len(read_rows(path)) == 1
 
@@ -150,7 +158,7 @@ def test_resume_terminates_a_complete_last_row_before_appending(tmp_path):
     row = {"n_qubits": 4, "reps": 1, "layers": 1, "shots": 0, "batch": 1, "restarts": 3, "seed": 0}
     path = tmp_path / "out.jsonl"
     path.write_text(json.dumps(row))  # complete row, no final newline
-    assert _done(path) == {tuple(row.values())}
+    assert _done(path) == {tuple({**DEFAULTS, **row}[k] for k in KEY)}
     assert path.read_text() == json.dumps(row) + "\n"
 
 
@@ -262,6 +270,7 @@ def test_shot_gradient_converges_to_exact():
 
 def test_summary_counts_best_restart_outcomes():
     base = {"n_qubits": 4, "reps": 1, "layers": 1, "shots": 0, "batch": 1, "restarts": 5}
+    base["label"] = "fixed"
     rows = [
         {**base, "seed": 0, "best_outcome": "recovered", "any_recovered": True, "best_error": 0.0},
         {**base, "seed": 1, "best_outcome": "stuck", "any_recovered": True, "best_error": 2.0},
@@ -270,3 +279,73 @@ def test_summary_counts_best_restart_outcomes():
     (s,) = table([{**r, "n_effective": 4} for r in rows])
     assert (s["recovered"], s["ambiguous"], s["stuck"], s["any_restart_recovered"]) == (1, 1, 1, 2)
     assert (s["median_error"], s["within_close"]) == (0.1, 2)
+
+
+def test_rows_from_before_the_label_axis_load_as_fixed(tmp_path):
+    row = {"n_qubits": 4, "reps": 1, "layers": 1, "shots": 0, "batch": 1, "restarts": 3, "seed": 0}
+    path = tmp_path / "old.jsonl"
+    path.write_text(json.dumps(row) + "\n")
+    (loaded,) = read_rows(path)
+    assert loaded["label"] == "fixed"
+
+
+@pytest.mark.parametrize("batch", [1, 2, 3])
+def test_label_free_loss_is_zero_at_the_truth_and_never_above_the_known_label_loss(batch):
+    c = Circuit(3, 1, 2)
+    rng = np.random.default_rng(batch)
+    theta = jnp.asarray(rng.uniform(0, 2 * np.pi, c.n_params))
+    xs = jnp.asarray(rng.uniform(0, np.pi, (batch, 3)))
+    ys = jnp.asarray(rng.choice([-1.0, 1.0], batch))
+    g = c.batch_grad(xs, theta, ys)
+    scale = float((g**2).sum())
+    placeholder = jnp.ones(batch)
+    assert matching_loss(c, xs, theta, g, placeholder, label_known=False) <= 1e-12 * scale
+    for _ in range(5):
+        guess = jnp.asarray(rng.uniform(0, np.pi, (batch, 3)))
+        free = matching_loss(c, guess, theta, g, placeholder, label_known=False)
+        known = matching_loss(c, guess, theta, g, ys, label_known=True)
+        assert free <= known * (1 + 1e-9) + 1e-15
+
+
+def test_label_modes_share_the_client_and_hide_the_label():
+    job = {"n_qubits": 2, "reps": 1, "layers": 2, "seed": 3, "shots": 0, "batch": 2, "restarts": 1}
+    rows = {m: run_one({**job, "label": m}) for m in ("fixed", "known", "unknown")}
+    assert rows["known"]["grad_norm2"] == rows["unknown"]["grad_norm2"]
+    assert rows["fixed"]["grad_norm2"] != rows["known"]["grad_norm2"]
+    assert rows["unknown"]["true_match"] <= 1e-12 * rows["unknown"]["grad_norm2"]
+
+
+def test_mcnemar_exact():
+    from qflp.figures import mcnemar_exact
+
+    assert mcnemar_exact(0, 0) == 1.0
+    assert mcnemar_exact(9, 2) == mcnemar_exact(2, 9) == pytest.approx(0.0654, abs=1e-4)
+    assert mcnemar_exact(10, 0) == pytest.approx(2 / 2**10)
+
+
+def test_label_table_pools_discordant_seeds_per_batch(tmp_path):
+    from qflp.figures import label_table
+
+    def row(n, b, label, seed, ok):
+        return {
+            "n_qubits": n, "reps": 1, "layers": 2, "shots": 0, "batch": b, "restarts": 10,
+            "label": label, "seed": seed, "n_effective": 12, "best_outcome": "recovered" if ok
+            else "stuck", "any_recovered": ok, "best_error": 0.0 if ok else 2.0,
+        }  # fmt: skip
+
+    # Circuit 4q: seed 0 recovered only with the label. Circuit 8q: seed 0 only with, seed 1 only
+    # without. Batch 1 agrees everywhere.
+    rows = [
+        row(4, 2, "known", 0, True), row(4, 2, "unknown", 0, False),
+        row(8, 2, "known", 0, True), row(8, 2, "unknown", 0, False),
+        row(8, 2, "known", 1, False), row(8, 2, "unknown", 1, True),
+        row(4, 1, "known", 0, True), row(4, 1, "unknown", 0, True),
+    ]  # fmt: skip
+    macros = label_table(rows, tmp_path / "rq4.tex")
+    assert (macros["LabelKnownOnlyTwo"], macros["LabelUnknownOnlyTwo"]) == ("2", "1")
+    assert (macros["LabelKnownOnlyOne"], macros["LabelUnknownOnlyOne"]) == ("0", "0")
+    assert macros["LabelPooledPTwo"] == "1.000"
+    assert (macros["LabelKnownOnlyAll"], macros["LabelUnknownOnlyAll"]) == ("2", "1")
+    assert macros["LabelKnownOnlyTopTwo"] == "1"
+    assert macros["LabelTopCircuitTwo"] == "8-qubit $1\\times2$"
+    assert len((tmp_path / "rq4.tex").read_text().splitlines()) == 3

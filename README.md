@@ -26,7 +26,8 @@ Final project for CSCI-739 Quantum Machine Learning, RIT, Fall 2026.
 ## Results so far
 
 Gradient-matching attacks on 4- and 8-qubit re-uploading circuits (an attacker who knows the
-circuit, its parameters and the label; one sample; 20 seeds per setting; raw rows in
+circuit and its parameters; one sample and a known label unless stated; 20 seeds per setting; raw
+rows in
 [`results/`](results), write-up in [`report/report.tex`](report/report.tex)):
 
 - Every circuit with one encoding layer and two or more trainable layers gave up its input on 20 of
@@ -39,6 +40,11 @@ circuit, its parameters and the label; one sample; 20 seeds per setting; raw row
 - Against 10 restarts, shot noise protects 8-qubit circuits at about 100 shots per expectation
   value. For circuits the noiseless attack breaks, the reconstruction error then falls as about
   S^-1/2.
+- Batches of B inputs leaked at up to 0.67 unknowns (N·B) per effective parameter and never from
+  1.14 up, where every seed had a different batch that fit the gradient as well as the true one.
+- Hiding binary labels lowered recovery for a label-free attack that solves for each sample's
+  gradient weight: 14 vs 3 discordant seeds pooled over all settings, exact McNemar p = 0.013,
+  almost all at B = 2 and 9 of them on the 8-qubit 1×2 circuit.
 
 ## Run it
 

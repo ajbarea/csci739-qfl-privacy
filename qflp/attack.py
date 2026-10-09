@@ -17,6 +17,9 @@ CLOSE_RAD = 0.2
 OUTCOMES = ("recovered", "close", "ambiguous", "stuck")
 # A wrong input "explains" the gradient when it matches it at least this well relative to the truth.
 EXPLAINS_SLACK = 1e-6
+# Tikhonov term, relative to the mean squared norm of the per-sample gradients, that keeps the
+# label-free solve defined when two of them are parallel. Far below EXPLAINS_SLACK.
+RIDGE = 1e-12
 
 
 def circular_error(x_hat, x_true) -> float:
@@ -44,19 +47,32 @@ def circular_error(x_hat, x_true) -> float:
 
 
 @cache
-def _loss_and_grad(circuit: Circuit):
-    """Jitted value-and-gradient of the matching loss; compiled once per circuit shape."""
+def _loss_and_grad(circuit: Circuit, label_known: bool = True):
+    """Jitted value-and-gradient of the matching loss; compiled once per circuit shape.
+
+    With the label known, the loss is the squared distance to the client's gradient. Without it,
+    each sample's weight c_i = 2 (f_i - y_i) / B is free, so the loss is the squared distance from
+    the client's gradient to the span of the candidate inputs' output gradients (the best c in
+    closed form). For B = 1 this is Geiping et al.'s scale-invariant matching.
+    """
 
     def loss(x_flat, theta, g_obs, ys):
         xs = x_flat.reshape(ys.shape[0], circuit.n_qubits)
-        d = circuit.batch_grad(xs, theta, ys) - g_obs
+        if label_known:
+            d = circuit.batch_grad(xs, theta, ys) - g_obs
+        else:
+            jac = circuit.output_grads(xs, theta)
+            gram = jac @ jac.T
+            ridge = RIDGE * jnp.trace(gram) / ys.shape[0] * jnp.eye(ys.shape[0])
+            c = jnp.linalg.solve(gram + ridge, jac @ g_obs)
+            d = jac.T @ c - g_obs
         return (d**2).sum()
 
     return jax.jit(jax.value_and_grad(loss))
 
 
-def matching_loss(circuit: Circuit, xs, theta, g_obs, ys) -> float:
-    vg = _loss_and_grad(circuit)
+def matching_loss(circuit: Circuit, xs, theta, g_obs, ys, label_known: bool = True) -> float:
+    vg = _loss_and_grad(circuit, label_known)
     return float(vg(jnp.ravel(jnp.asarray(xs)), theta, g_obs, ys)[0])
 
 
@@ -90,16 +106,18 @@ def attack(
     restarts: int,
     rng: np.random.Generator,
     maxiter: int = 500,
+    label_known: bool = True,
 ) -> tuple[list[Restart], float]:
     """Run `restarts` L-BFGS-B searches from uniform[0, π) starts.
 
     Returns every restart and the matching loss of the true input, which is 0 for an exact gradient
-    and positive once the client's gradient is noisy.
+    and positive once the client's gradient is noisy. Without `label_known`, `ys` only sets the
+    batch size; the attack never reads the labels.
     """
     theta, g_obs, ys = jnp.asarray(theta), jnp.asarray(g_obs), jnp.asarray(ys, dtype=float)
-    vg = _loss_and_grad(circuit)
+    vg = _loss_and_grad(circuit, label_known)
     x_true = np.atleast_2d(x_true)
-    true_match = matching_loss(circuit, x_true, theta, g_obs, ys)
+    true_match = matching_loss(circuit, x_true, theta, g_obs, ys, label_known)
     scale = float((g_obs**2).sum())
 
     def fun(v):
