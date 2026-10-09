@@ -1,12 +1,16 @@
+import itertools
+import json
+
 import jax.numpy as jnp
 import numpy as np
 import pennylane as qml
 import pytest
 
-from qflp.attack import RECOVERED_RAD, attack, best_restart, circular_error, classify
+from qflp.attack import CLOSE_RAD, RECOVERED_RAD, attack, best_restart, circular_error, classify
 from qflp.circuit import Circuit
 from qflp.noise import shot_gradient
-from qflp.summarize import table
+from qflp.summarize import read_rows, table
+from qflp.sweep import _done
 
 
 def pennylane_reference(c: Circuit):
@@ -89,12 +93,37 @@ def test_circular_error_is_mod_2pi_and_order_free():
     assert circular_error(-y, y) == pytest.approx(2.0)  # cos would fold -y onto y
 
 
+def test_circular_error_matches_brute_force_over_permutations():
+    rng = np.random.default_rng(0)
+    for batch in (1, 2, 3, 5):
+        for _ in range(20):
+            x = rng.uniform(0, 2 * np.pi, (batch, 3))
+            x_hat = x[rng.permutation(batch)] + rng.normal(0, 0.3, (batch, 3))
+            brute = min(
+                float(np.abs(np.angle(np.exp(1j * (x_hat[list(p)] - x)))).max())
+                for p in itertools.permutations(range(batch))
+            )
+            assert circular_error(x_hat, x) == pytest.approx(brute)
+
+
 def test_classify():
     assert classify(RECOVERED_RAD / 2, 1.0, 0.0, 1.0) == "recovered"
+    assert classify((RECOVERED_RAD + CLOSE_RAD) / 2, 1.0, 0.0, 1.0) == "close"
     assert classify(1.0, 1e-12, 0.0, 1.0) == "ambiguous"
     assert classify(1.0, 1e-3, 0.0, 1.0) == "stuck"
-    # Under noise the truth no longer matches exactly; a wrong input that fits as well is ambiguous.
+    # Under noise the truth no longer matches exactly; a far input that fits as well is ambiguous,
+    # a near one that fits better is a close reconstruction, not a second preimage.
     assert classify(1.0, 0.5, 0.5, 1.0) == "ambiguous"
+    assert classify(0.1, 0.4, 0.5, 1.0) == "close"
+
+
+def test_resume_drops_a_partial_last_line(tmp_path):
+    row = {"n_qubits": 4, "reps": 1, "layers": 1, "seed": 0, "shots": 0, "batch": 1, "restarts": 3}
+    path = tmp_path / "out.jsonl"
+    path.write_text(json.dumps(row) + "\n" + json.dumps({**row, "seed": 1})[:20])
+    assert _done(path) == {tuple(row.values())}
+    assert path.read_text() == json.dumps(row) + "\n"
+    assert len(read_rows(path)) == 1
 
 
 def test_deep_trainable_circuit_input_is_recovered():

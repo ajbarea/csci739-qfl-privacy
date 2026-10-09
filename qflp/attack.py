@@ -1,18 +1,20 @@
 """Gradient-matching inversion (Zhu et al. 2019) against the VQC client update."""
 
-import itertools
 from dataclasses import asdict, dataclass
 from functools import cache
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import linear_sum_assignment, minimize
 
 from qflp.circuit import Circuit
 
 # A restart lands on the true input when every feature is within this angle of it, mod 2π.
 RECOVERED_RAD = 0.05
+# Under shot noise the exact input is out of reach; a reconstruction this close still leaks it.
+CLOSE_RAD = 0.2
+OUTCOMES = ("recovered", "close", "ambiguous", "stuck")
 # A wrong input "explains" the gradient when it matches it at least this well relative to the truth.
 EXPLAINS_SLACK = 1e-6
 
@@ -21,14 +23,22 @@ def circular_error(x_hat, x_true) -> float:
     """Largest per-feature distance mod 2π, minimized over orderings of the batch.
 
     RY(x + 2π) = -RY(x) is a global phase, so inputs are only defined mod 2π. Batch order is not
-    observable from a mean gradient, so rows are matched up to permutation.
+    observable from a mean gradient, so rows are matched up to permutation: the bottleneck
+    assignment, found by bisecting on the threshold with a perfect-matching check.
     """
     x_hat, x_true = np.atleast_2d(x_hat), np.atleast_2d(x_true)
-    best = np.inf
-    for perm in itertools.permutations(range(len(x_true))):
-        d = np.angle(np.exp(1j * (x_hat[list(perm)] - x_true)))
-        best = min(best, float(np.abs(d).max()))
-    return best
+    diff = np.angle(np.exp(1j * (x_hat[:, None, :] - x_true[None, :, :])))
+    dist = np.abs(diff).max(-1)  # dist[i, j]: row i of x_hat against row j of x_true
+    levels = np.unique(dist)
+    lo, hi = 0, len(levels) - 1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        rows, cols = linear_sum_assignment((dist > levels[mid]).astype(float))
+        if (dist[rows, cols] > levels[mid]).any():
+            lo = mid + 1
+        else:
+            hi = mid
+    return float(levels[lo])
 
 
 @cache
@@ -57,10 +67,13 @@ class Restart:
 
 
 def classify(error: float, match: float, true_match: float, scale: float) -> str:
-    """recovered: the true input; ambiguous: a wrong input that fits the gradient at least as well
-    as the true one; stuck: a local minimum that fits worse."""
+    """recovered: the true input; close: within CLOSE_RAD of it, which is what a noisy gradient
+    allows; ambiguous: a different input that fits the gradient at least as well as the true one;
+    stuck: a local minimum that fits worse."""
     if error <= RECOVERED_RAD:
         return "recovered"
+    if error <= CLOSE_RAD:
+        return "close"
     if match <= true_match + EXPLAINS_SLACK * scale:
         return "ambiguous"
     return "stuck"

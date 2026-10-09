@@ -29,16 +29,20 @@ def run_one(job: dict) -> dict:
 
     c = Circuit(job["n_qubits"], job["reps"], job["layers"])
     # One generator per run, seeded from the run's identity, so any row can be re-run alone.
-    rng = np.random.default_rng(
-        [job["seed"], job["n_qubits"], job["reps"], job["layers"], job["batch"]]
-    )
+    identity = [job["seed"], job["n_qubits"], job["reps"], job["layers"], job["batch"]]
+    rng = np.random.default_rng(identity)
     theta = rng.uniform(0, 2 * np.pi, c.n_params)
     xs = rng.uniform(0, np.pi, (job["batch"], c.n_qubits))
     ys = np.ones(job["batch"])
     if job["shots"]:
-        shot_rng = np.random.default_rng([job["seed"], job["shots"]])
+        # Separate stream so the attack's starting points match the exact-gradient run.
+        shot_rng = np.random.default_rng([*identity, job["shots"]])
         g_obs = np.mean(
-            [shot_gradient(c, x, theta, 1.0, job["shots"], shot_rng) for x in xs], axis=0
+            [
+                shot_gradient(c, x, theta, y, job["shots"], shot_rng)
+                for x, y in zip(xs, ys, strict=True)
+            ],
+            axis=0,
         )
     else:
         g_obs = np.asarray(c.batch_grad(jnp.asarray(xs), jnp.asarray(theta), jnp.asarray(ys)))
@@ -61,10 +65,20 @@ def run_one(job: dict) -> dict:
 
 
 def _done(path: Path) -> set[tuple]:
+    """Keys of the complete rows in `path`; a partial line from a killed sweep is dropped."""
     if not path.exists():
         return set()
-    with path.open() as fh:
-        return {tuple(row[k] for k in KEY) for row in map(json.loads, fh)}
+    lines = path.read_text().splitlines(keepends=True)
+    good = []
+    for line in lines:
+        try:
+            json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        good.append(line if line.endswith("\n") else line + "\n")
+    if good != lines:
+        path.write_text("".join(good))
+    return {tuple(json.loads(line)[k] for k in KEY) for line in good}
 
 
 def _commit() -> str:
@@ -115,9 +129,15 @@ def main(argv: list[str] | None = None) -> None:
         ProcessPoolExecutor(args.workers, mp_context=ctx) as pool,
         args.out.open("a") as fh,
     ):
-        futures = [pool.submit(run_one, j) for j in todo]
+        futures = {pool.submit(run_one, j): j for j in todo}
+        failed = 0
         for i, fut in enumerate(as_completed(futures), 1):
-            row = {**fut.result(), **meta}
+            try:
+                row = {**fut.result(), **meta}
+            except Exception as exc:  # one bad run must not discard the rest
+                failed += 1
+                print(f"[{i}/{len(todo)}] FAILED {futures[fut]}: {exc!r}", flush=True)  # noqa: T201
+                continue
             fh.write(json.dumps(row) + "\n")
             fh.flush()
             print(  # noqa: T201
@@ -126,6 +146,8 @@ def main(argv: list[str] | None = None) -> None:
                 f"{row['best_outcome']} ({row['seconds']:.1f}s)",
                 flush=True,
             )
+    if failed:
+        raise SystemExit(f"{failed} of {len(todo)} runs failed; rerun to retry them")
 
 
 if __name__ == "__main__":

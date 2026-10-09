@@ -20,12 +20,17 @@ Results (`results/`, 20 seeds per setting):
   8, 2 recovered for r = 1, 2, 4, 8. r = ℓ = 1 gives a different exact preimage (16/20, 20/20).
 - `rq2.jsonl`, 600 attacks: at 4 qubits, 100 shots still leaves 13-15/20 within 0.2 rad; error
   falls ~S^-1/2. At 8 qubits, 100 shots protects (median 0.99-2.6 rad); by 1e4 shots 1×4 is back
-  to 20/20 within 0.2 rad. Stuck seeds are the same at every shot count.
+  to 20/20 within 0.2 rad. For 4-qubit 4×1 the same 4 seeds are stuck at every shot count; at 8
+  qubits the stuck count varies with shots (2×2: 0-4, 4×1: 5-13).
+  Rerun pending: the shot-noise stream was shared across circuits (seeded by seed and shots only).
 - `budget.jsonl` (running): 50 restarts on 8-qubit 2×1, 4×1, 4×2, 8×1.
 
 `report/report.tex` is drafted from these; only the budget result and the conclusion are FILL.
 
 ## Next
+
+📋 Confirm the proposal reached myCourses (due 2026-10-09 23:59). A one-page Google Docs version
+was downloaded to `proposal/` on 2026-10-07; `proposal/proposal.tex` is the LaTeX version.
 
 📋 Fill the budget subsection and conclusion; regenerate `report/tables/budget.tex`.
 

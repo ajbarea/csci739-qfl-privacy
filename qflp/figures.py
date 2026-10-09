@@ -16,7 +16,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from qflp.summarize import CLOSE_RAD, load, table
+from qflp.summarize import CLOSE_RAD, best_outcome, load, outcomes, table
 
 # Okabe-Ito, checked for colour-vision deficiency; markers repeat the identity for print.
 STYLE = [("#0072B2", "o"), ("#D55E00", "s"), ("#009E73", "^")]
@@ -30,19 +30,29 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return max(0.0, centre - half), min(1.0, centre + half)
 
 
-def privacy_map(rows: list[dict], out: Path) -> None:
+def _styles(n_series: int) -> list[tuple[str, str]]:
+    if n_series > len(STYLE):
+        raise ValueError(f"{n_series} series but only {len(STYLE)} validated styles")
+    return STYLE[:n_series]
+
+
+def privacy_map(rows: list[dict], out: Path, restarts: int = 10) -> None:
     """Recovered fraction against encoding reps, one line per fixed reps x layers product."""
-    exact = [r for r in rows if r["shots"] == 0 and r["batch"] == 1]
+    exact = [r for r in rows if r["shots"] == 0 and r["batch"] == 1 and r["restarts"] == restarts]
     qubits = sorted({r["n_qubits"] for r in exact})
     fig, axes = plt.subplots(1, len(qubits), figsize=(3.5 * len(qubits), 2.9), sharey=True)
     axes = [axes] if len(qubits) == 1 else list(axes)
     for ax, n in zip(axes, qubits, strict=True):
         groups: dict[int, dict[int, list[bool]]] = defaultdict(lambda: defaultdict(list))
+        params: dict[int, int] = {}
         for r in exact:
             if r["n_qubits"] == n and r["reps"] * r["layers"] > 1:
-                groups[r["reps"] * r["layers"]][r["reps"]].append(r["best_outcome"] == "recovered")
+                product = r["reps"] * r["layers"]
+                groups[product][r["reps"]].append(r["best_outcome"] == "recovered")
+                params[product] = r["n_effective"]
+        series = sorted(groups.items())
         for i, ((product, by_reps), (colour, marker)) in enumerate(
-            zip(sorted(groups.items()), STYLE, strict=False)
+            zip(series, _styles(len(series)), strict=True)
         ):
             reps = sorted(by_reps)
             k = [sum(by_reps[x]) for x in reps]
@@ -53,7 +63,6 @@ def privacy_map(rows: list[dict], out: Path) -> None:
                 [f - lo_ for f, lo_ in zip(frac, lo, strict=True)],
                 [hi_ - f for f, hi_ in zip(frac, hi, strict=True)],
             ]
-            params = 2 * n * product - n
             dodge = 2 ** (0.05 * (i - 1))  # separate overlapping error bars
             ax.errorbar(
                 [x * dodge for x in reps],
@@ -64,7 +73,7 @@ def privacy_map(rows: list[dict], out: Path) -> None:
                 ms=6,
                 lw=2,
                 capsize=3,
-                label=f"{params} effective params",
+                label=f"{params[product]} effective params",
             )
         ax.set_xscale("log", base=2)
         ax.set_xticks([1, 2, 4, 8], labels=["1", "2", "4", "8"])
@@ -83,6 +92,8 @@ def privacy_map(rows: list[dict], out: Path) -> None:
 
 def shot_noise(rows: list[dict], out: Path) -> None:
     """Median reconstruction error against shots per gradient entry, one line per circuit."""
+    rows = [r for r in rows if r["batch"] == 1]
+    summary = table(rows)
     qubits = sorted({r["n_qubits"] for r in rows})
     fig, axes = plt.subplots(1, len(qubits), figsize=(3.5 * len(qubits), 2.9), sharey=True)
     axes = [axes] if len(qubits) == 1 else list(axes)
@@ -90,11 +101,9 @@ def shot_noise(rows: list[dict], out: Path) -> None:
         grids = sorted(
             {(r["reps"], r["layers"]) for r in rows if r["n_qubits"] == n}, key=lambda g: g[0]
         )
-        for (reps, layers), (colour, marker) in zip(grids, STYLE, strict=False):
+        for (reps, layers), (colour, marker) in zip(grids, _styles(len(grids)), strict=True):
             sel = [
-                s
-                for s in table(rows)
-                if (s["n_qubits"], s["reps"], s["layers"]) == (n, reps, layers)
+                s for s in summary if (s["n_qubits"], s["reps"], s["layers"]) == (n, reps, layers)
             ]
             sel.sort(key=lambda s: s["shots"])
             ax.plot(
@@ -122,10 +131,10 @@ def shot_noise(rows: list[dict], out: Path) -> None:
 
 
 def outcome_table(rows: list[dict], out: Path) -> None:
-    """LaTeX rows: qubits, reps x layers, effective params, recovered / ambiguous / stuck."""
+    """LaTeX rows: qubits, reps x layers, effective params, recovered / close / ambiguous / stuck."""
     lines = [
         f"{s['n_qubits']} & ${s['reps']}\\times{s['layers']}$ & {s['n_effective']} & "
-        f"{s['recovered']} & {s['ambiguous']} & {s['stuck']} \\\\"
+        f"{s['recovered']} & {s['close']} & {s['ambiguous']} & {s['stuck']} \\\\"
         for s in table(rows)
     ]
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -147,6 +156,25 @@ def shots_table(rows: list[dict], out: Path) -> None:
     out.write_text("\n".join(lines) + "\n")
 
 
+def budget_table(rows: list[dict], out: Path, budgets: tuple[int, ...] = (10, 50)) -> None:
+    """LaTeX rows: qubits, reps x layers, effective params, seeds recovered within each restart
+    budget, and the fraction of all restarts that recover the input."""
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for r in rows:
+        groups[(r["n_qubits"], r["reps"], r["layers"])].append(r)
+    lines = []
+    for (n, reps, layers), rs in sorted(groups.items()):
+        within = [sum(best_outcome(r, b) == "recovered" for r in rs) for b in budgets]
+        per = [o == "recovered" for r in rs for o in outcomes(r)]
+        cells = " & ".join(f"{w}/{len(rs)}" for w in within)
+        lines.append(
+            f"{n} & ${reps}\\times{layers}$ & {rs[0]['n_effective']} & {cells} & "
+            f"{100 * sum(per) / len(per):.1f}\\% \\\\"
+        )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines) + "\n")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--results", type=Path, default=Path("results"))
@@ -160,7 +188,7 @@ def main(argv: list[str] | None = None) -> None:
     shots_table(rq2, args.report / "tables" / "rq2.tex")
     budget = args.results / "budget.jsonl"
     if budget.exists():
-        outcome_table(load([budget]), args.report / "tables" / "budget.tex")
+        budget_table(load([budget]), args.report / "tables" / "budget.tex")
 
 
 if __name__ == "__main__":

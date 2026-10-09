@@ -158,13 +158,15 @@ Each attack ends in one of three outcomes:
 \begin{itemize}
   \item \emph{Recovered}: every feature lies within 0.05~rad of the true input, measured modulo
   $2\pi$ because $R_Y(x+2\pi) = -R_Y(x)$ differs only by a global phase.
-  \item \emph{Ambiguous}: a different input that matches the gradient at least as well as the true
-  one, $\mathcal L(\hat x) \le \mathcal L(x) + 10^{-6}\|g\|^2$. For an exact gradient
+  \item \emph{Close}: not recovered, but every feature within 0.2~rad. Under shot noise this is
+  the best the attacker can do, and it still reveals the input to within that angle.
+  \item \emph{Ambiguous}: an input further away that matches the gradient at least as well as the
+  true one, $\mathcal L(\hat x) \le \mathcal L(x) + 10^{-6}\|g\|^2$. For an exact gradient
   $\mathcal L(x) = 0$, so this is a second exact preimage.
   \item \emph{Stuck}: a local minimum that matches worse than the true input.
 \end{itemize}
-Under shot noise the true input no longer matches exactly, so we also report the median
-reconstruction error and the number of seeds within 0.2~rad. Every setting uses 20 seeds, each
+Under shot noise we also report the median reconstruction error. Outcomes are recomputed from each
+restart's stored error and loss, so a change of threshold needs no rerun. Every setting uses 20 seeds, each
 with its own input and parameters. Intervals in the figures are 95\% Wilson intervals.
 
 \subsection{Shot Noise}
@@ -183,9 +185,9 @@ fraction at a fixed parameter count.
 \caption{RQ1 outcomes over 20 seeds per circuit (exact gradients, 10 restarts).}
 \label{tab:rq1}
 \centering
-\begin{tabular}{@{}cccccc@{}}
+\begin{tabular}{@{}ccccccc@{}}
 \toprule
-Qubits & $r\times\ell$ & Eff.\ params & Recovered & Ambiguous & Stuck \\
+Qubits & $r\times\ell$ & Params & Recov. & Close & Ambig. & Stuck \\
 \midrule
 \inputrows{tables/rq1.tex}
 \bottomrule
@@ -206,6 +208,8 @@ Three regimes appear:
   \item \textbf{Too few parameters: a different input with the same gradient.} With $r = \ell = 1$
   there are $N$ effective parameters for $N$ unknowns. The best restart reached an exact match on
   every seed, but on a different input in 16 of 20 seeds at 4 qubits and 20 of 20 at 8 qubits.
+  Two of the 16 at 4 qubits lay within 0.14~rad of the truth (``close'' in
+  Table~\ref{tab:rq1}).
   Another restart did find the true input on 14 and 7 of those seeds, but it matched no better
   than the wrong one. The gradient does not determine the input here, so the server cannot tell
   which preimage is the client's.
