@@ -300,7 +300,7 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     }
     lines = []
     pooled: dict[int, list[int]] = defaultdict(lambda: [0, 0])
-    top: dict[int, int] = defaultdict(int)
+    top: dict[int, tuple[int, str]] = defaultdict(lambda: (0, ""))
     for key in sorted({k[:-1] for k in summary}):
         n, reps, layers, b, _ = key
         cells = []
@@ -312,7 +312,7 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
         only = [sum(k and not u for k, u in pairs), sum(u and not k for k, u in pairs)]
         pooled[b][0] += only[0]
         pooled[b][1] += only[1]
-        top[b] = max(top[b], only[0])
+        top[b] = max(top[b], (only[0], f"{n}-qubit ${reps}\\times{layers}$"))
         lines.append(
             f"{n} & ${reps}\\times{layers}$ & {b} & {cells[0]} & {cells[1]} & "
             f"{mcnemar_exact(*only):.3f} \\\\"
@@ -331,7 +331,8 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
         macros[f"LabelKnownOnly{name}"] = str(known_only)
         macros[f"LabelUnknownOnly{name}"] = str(unknown_only)
         macros[f"LabelPooledP{name}"] = f"{mcnemar_exact(known_only, unknown_only):.3f}"
-        macros[f"LabelKnownOnlyTop{name}"] = str(top[b])
+        macros[f"LabelKnownOnlyTop{name}"] = str(top[b][0])
+        macros[f"LabelTopCircuit{name}"] = top[b][1]
     return macros
 
 

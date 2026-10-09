@@ -374,7 +374,8 @@ as effective parameters. Bars are 95\% Wilson intervals.}
   \BatchHeldMinRatio{} up. No batch size in the grid lands on a ratio of 1, so the data bracket the
   crossover. It is consistent with recovery needing $NB < P_{\mathrm{eff}}$: at equality, the
   $r = \ell = 1$ circuits of RQ1, other exact preimages already exist. Papadopoulos et
-  al.~\cite{papadopoulos2025} call a model overparameterized at $NB \le P_{\mathrm{eff}}$.
+  al.~\cite{papadopoulos2025} call a model overparameterized once its parameters give at least as
+  many gradient equations as there are unknowns, counting all $P$ parameters.
   \item \textbf{Past that point every seed was ambiguous.} The attacker found a different batch that
   fits the gradient as well as the true one, with its worst-matched input a median of
   \BatchAmbigErrLow{} to \BatchAmbigErrHigh~rad from the truth. The gradient alone no longer singles
@@ -412,7 +413,7 @@ Qubits & $r\times\ell$ & $B$ & Known & Unknown & $p$ \\
   \item \textbf{The difference sits at $B = 2$, mostly on one circuit.} With $B = 1$ the counts are
   \LabelKnownOnlyOne{} and \LabelUnknownOnlyOne; with $B = 2$ they are \LabelKnownOnlyTwo{} and
   \LabelUnknownOnlyTwo, and \LabelKnownOnlyTopTwo{} of those \LabelKnownOnlyTwo{} come from the
-  8-qubit $1\times2$ circuit.
+  \LabelTopCircuitTwo{} circuit.
   \item \textbf{The extra failures were stuck, not ambiguous.} On that circuit 14 seeds were stuck
   without the labels against 7 with them. Hiding the label raised the cost of the search rather
   than making the input ambiguous.
@@ -470,7 +471,7 @@ restarts under noise. At 4 qubits every circuit leaked on at least half the seed
 shot count we tried.
 
 Batching protected the input from \BatchHeldMinRatio{} unknowns per effective parameter up, and
-there every attack found a different batch with the same gradient. Up to \BatchLeakMaxRatio{} a
+there every attack found a different batch that fit the gradient as well as the true one. Up to \BatchLeakMaxRatio{} a
 larger batch left more attacks stuck at 10 restarts. Against a label-free attack, hiding binary
 labels lowered recovery (pooled exact McNemar $p = \LabelPooledPAll$), almost entirely with two
 inputs per update and mostly on one circuit; an attacker that tries every labeling was not tested.
