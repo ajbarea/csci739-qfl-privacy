@@ -30,8 +30,5 @@ Results (`results/`, 20 seeds per setting):
 
 ## Next
 
-📋 Confirm the proposal reached myCourses (due 2026-10-09 23:59). A one-page Google Docs version
-was downloaded to `proposal/` on 2026-10-07; `proposal/proposal.tex` is the LaTeX version.
-
 📋 Extensions in ROADMAP order: batch size and unknown label, trained θ, Aer fake-backend noise,
 tower-encoding variant (Kumar et al.'s regime).

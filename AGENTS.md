@@ -29,8 +29,8 @@ noise.
 - uv, ruff (format + check), ty, pytest. CI runs exactly those on 3.12-3.14.
 - **`qflp/`, a JAX statevector simulator with `lax.scan`**, runs the attack. It needs the gradient
   of a gradient-matching loss (second-order autodiff). PennyLane autograd took ~27 s per 4x4 attack,
-  and `jax.jit` over a PennyLane QNode unrolls every gate and compiled for >10 min at 8 qubits; the
-  scan version compiles in <10 s. **PennyLane `default.qubit` is the reference**: tests pin the
+  and `jax.jit` over a PennyLane QNode unrolls every gate, so compile time grows with depth; the
+  scan version compiles once per shape in <10 s at 8 qubits. **PennyLane `default.qubit` is the reference**: tests pin the
   simulator's probabilities and gradients to it at 1e-12. Change the circuit in both or neither.
 - `uv run python -m qflp.sweep ... --out results/<name>.jsonl` appends one row per run and skips rows
   already present, so a killed sweep resumes. `python -m qflp.summarize results/*.jsonl` prints the
