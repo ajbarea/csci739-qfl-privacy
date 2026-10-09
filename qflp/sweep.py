@@ -4,8 +4,12 @@
 
 POSIX only: the output file is locked with flock while a sweep runs.
 
-Resumable: rows already in --out (same qubits, reps, layers, seed, shots, batch, restarts) are
-skipped, so an interrupted sweep continues where it stopped.
+Resumable: rows already in --out (same qubits, reps, layers, seed, shots, batch, restarts, label)
+are skipped, so an interrupted sweep continues where it stopped.
+
+Label modes: `fixed`, every y = 1 and the attacker knows it (the first sweeps); `known`, each y
+drawn from {-1, +1} and given to the attacker; `unknown`, the same draw, hidden from the attacker.
+Runs that differ only in label mode share θ, inputs and the attack's starting points.
 """
 
 import argparse
@@ -36,7 +40,13 @@ def run_one(job: dict) -> dict:
     rng = np.random.default_rng(identity)
     theta = rng.uniform(0, 2 * np.pi, c.n_params)
     xs = rng.uniform(0, np.pi, (job["batch"], c.n_qubits))
-    ys = np.ones(job["batch"])
+    if job["label"] == "fixed":
+        ys = np.ones(job["batch"])
+    else:
+        # A child stream, so `known` and `unknown` see the same labels and `fixed` is unchanged.
+        label_rng = np.random.default_rng(np.random.SeedSequence(identity).spawn(1)[0])
+        ys = label_rng.choice([-1.0, 1.0], job["batch"])
+    label_known = job["label"] != "unknown"
     if job["shots"]:
         # Separate stream so the attack's starting points match the exact-gradient run.
         shot_rng = np.random.default_rng([*identity, job["shots"]])
@@ -50,7 +60,11 @@ def run_one(job: dict) -> dict:
     else:
         g_obs = np.asarray(c.batch_grad(jnp.asarray(xs), jnp.asarray(theta), jnp.asarray(ys)))
     t0 = time.perf_counter()
-    restarts, true_match = attack(c, theta, g_obs, ys, xs, job["restarts"], rng)
+    # Without the label the attacker gets placeholder labels, which the label-free loss ignores.
+    ys_attacker = ys if label_known else np.ones(job["batch"])
+    restarts, true_match = attack(
+        c, theta, g_obs, ys_attacker, xs, job["restarts"], rng, label_known=label_known
+    )
     best = best_restart(restarts)
     return {
         **job,
@@ -98,6 +112,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--restarts", type=int, default=10)
     ap.add_argument("--shots", type=int, nargs="+", default=[0], help="0 = exact gradient")
     ap.add_argument("--batch", type=int, nargs="+", default=[1])
+    ap.add_argument("--label", nargs="+", default=["fixed"], choices=["fixed", "known", "unknown"])
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
@@ -113,11 +128,13 @@ def main(argv: list[str] | None = None) -> None:
             "shots": shots,
             "batch": b,
             "restarts": args.restarts,
+            "label": label,
         }
         for n in args.qubits
         for g in args.grid
         for shots in args.shots
         for b in args.batch
+        for label in args.label
         for s in range(args.seeds)
     ]
     args.out.parent.mkdir(parents=True, exist_ok=True)

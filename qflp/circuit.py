@@ -103,3 +103,8 @@ class Circuit:
     def batch_grad(self, xs, theta, ys):
         """Mean per-sample gradient over a batch (rows of `xs`)."""
         return jax.vmap(self.grad, in_axes=(0, None, 0))(xs, theta, ys).mean(0)
+
+    def output_grads(self, xs, theta):
+        """df/dθ for each row of `xs`, shape (batch, n_params). The client's batch gradient is
+        sum_i c_i * row i, with c_i = 2 (f(x_i) - y_i) / batch."""
+        return jax.vmap(jax.grad(self.expval, argnums=1), in_axes=(0, None))(xs, theta)

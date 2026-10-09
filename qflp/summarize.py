@@ -70,17 +70,18 @@ def table(rows: list[dict]) -> list[dict]:
 
 def markdown(summary: list[dict]) -> str:
     head = (
-        "| qubits | reps x layers | effective params | shots | batch | seeds | recovered |"
+        "| qubits | reps x layers | effective params | shots | batch | label | seeds | recovered |"
         f" close (<= {CLOSE_RAD} rad) | ambiguous | stuck | any restart recovered |"
         " median error (rad) |"
     )
-    lines = [head, "|" + "---|" * 12]
+    lines = [head, "|" + "---|" * 13]
     for s in summary:
         shots = s["shots"] or "exact"
         lines.append(
             f"| {s['n_qubits']} | {s['reps']} x {s['layers']} | {s['n_effective']} | {shots} | "
-            f"{s['batch']} | {s['seeds']} | {s['recovered']} | {s['close']} | {s['ambiguous']} | "
-            f"{s['stuck']} | {s['any_restart_recovered']} | {s['median_error']:.3f} |"
+            f"{s['batch']} | {s['label']} | {s['seeds']} | {s['recovered']} | {s['close']} | "
+            f"{s['ambiguous']} | {s['stuck']} | {s['any_restart_recovered']} | "
+            f"{s['median_error']:.3f} |"
         )
     return "\n".join(lines)
 
