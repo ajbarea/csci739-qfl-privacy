@@ -288,8 +288,9 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     """LaTeX rows: qubits, reps x layers, batch, recovered/close/ambiguous/stuck with the label
     known and with it unknown on the same clients, and the exact McNemar p-value for recovery.
 
-    Returns report macros for the same test pooled over circuits at each batch size. Clients are
-    independent across circuits, so their discordant pairs add."""
+    Returns report macros for the same test pooled over every setting (the primary test) and, as
+    description, per batch size, with the largest single setting's share of the known-only seeds.
+    Clients are independent across settings, so their discordant pairs add."""
     rows = [r for r in rows if r["shots"] == 0]
     setting = ("n_qubits", "reps", "layers", "batch", "restarts")
     summary = {(*(s[k] for k in setting), s["label"]): s for s in table(rows)}
@@ -299,6 +300,7 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     }
     lines = []
     pooled: dict[int, list[int]] = defaultdict(lambda: [0, 0])
+    top: dict[int, int] = defaultdict(int)
     for key in sorted({k[:-1] for k in summary}):
         n, reps, layers, b, _ = key
         cells = []
@@ -310,18 +312,26 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
         only = [sum(k and not u for k, u in pairs), sum(u and not k for k, u in pairs)]
         pooled[b][0] += only[0]
         pooled[b][1] += only[1]
+        top[b] = max(top[b], only[0])
         lines.append(
             f"{n} & ${reps}\\times{layers}$ & {b} & {cells[0]} & {cells[1]} & "
             f"{mcnemar_exact(*only):.3f} \\\\"
         )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n")
-    macros = {}
+    known_all = sum(k for k, _ in pooled.values())
+    unknown_all = sum(u for _, u in pooled.values())
+    macros = {
+        "LabelKnownOnlyAll": str(known_all),
+        "LabelUnknownOnlyAll": str(unknown_all),
+        "LabelPooledPAll": f"{mcnemar_exact(known_all, unknown_all):.3f}",
+    }
     for b, (known_only, unknown_only) in sorted(pooled.items()):
         name = _batch_name(b)
         macros[f"LabelKnownOnly{name}"] = str(known_only)
         macros[f"LabelUnknownOnly{name}"] = str(unknown_only)
         macros[f"LabelPooledP{name}"] = f"{mcnemar_exact(known_only, unknown_only):.3f}"
+        macros[f"LabelKnownOnlyTop{name}"] = str(top[b])
     return macros
 
 

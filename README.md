@@ -41,10 +41,10 @@ rows in
   value. For circuits the noiseless attack breaks, the reconstruction error then falls as about
   S^-1/2.
 - Batches of B inputs leaked at up to 0.67 unknowns (N·B) per effective parameter and never from
-  1.14 up, where every seed had a different batch with the same gradient.
-- Hiding binary labels (a label-free attack that solves for each sample's gradient weight) made
-  almost no difference at B = 1; at B = 2 it left more attacks stuck (13 vs 3 discordant seeds
-  pooled over circuits, exact McNemar p = 0.021).
+  1.14 up, where every seed had a different batch that fit the gradient as well as the true one.
+- Hiding binary labels lowered recovery for a label-free attack that solves for each sample's
+  gradient weight: 14 vs 3 discordant seeds pooled over all settings, exact McNemar p = 0.013,
+  almost all at B = 2 and 9 of them on the 8-qubit 1×2 circuit.
 
 ## Run it
 

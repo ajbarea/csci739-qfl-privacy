@@ -33,5 +33,5 @@ threat models, qualifiers, three different definitions of "overparameterized").
   protects only 8-qubit circuits at ~100 shots. Report drafted from the results.
 - 2026-10-09: one-page proposal sent to the instructor. Harness, RQ1, RQ2 and budget merged (#12).
 - 2026-10-09: client axis (#13): batches leak up to N·B/P_eff = 0.67 and never from 1.14 up (all
-  ambiguous); hiding binary labels changes nothing at B = 1 and leaves more attacks stuck at B = 2
-  (pooled McNemar p = 0.021).
+  ambiguous); hiding binary labels lowers recovery for a label-free attack (pooled McNemar p = 0.013), almost
+  all at B = 2.

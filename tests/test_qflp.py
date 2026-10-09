@@ -345,4 +345,6 @@ def test_label_table_pools_discordant_seeds_per_batch(tmp_path):
     assert (macros["LabelKnownOnlyTwo"], macros["LabelUnknownOnlyTwo"]) == ("2", "1")
     assert (macros["LabelKnownOnlyOne"], macros["LabelUnknownOnlyOne"]) == ("0", "0")
     assert macros["LabelPooledPTwo"] == "1.000"
+    assert (macros["LabelKnownOnlyAll"], macros["LabelUnknownOnlyAll"]) == ("2", "1")
+    assert macros["LabelKnownOnlyTopTwo"] == "1"
     assert len((tmp_path / "rq4.tex").read_text().splitlines()) == 3
