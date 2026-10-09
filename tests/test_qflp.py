@@ -313,3 +313,11 @@ def test_label_modes_share_the_client_and_hide_the_label():
     assert rows["known"]["grad_norm2"] == rows["unknown"]["grad_norm2"]
     assert rows["fixed"]["grad_norm2"] != rows["known"]["grad_norm2"]
     assert rows["unknown"]["true_match"] <= 1e-12 * rows["unknown"]["grad_norm2"]
+
+
+def test_mcnemar_exact():
+    from qflp.figures import mcnemar_exact
+
+    assert mcnemar_exact(0, 0) == 1.0
+    assert mcnemar_exact(9, 2) == mcnemar_exact(2, 9) == pytest.approx(0.0654, abs=1e-4)
+    assert mcnemar_exact(10, 0) == pytest.approx(2 / 2**10)

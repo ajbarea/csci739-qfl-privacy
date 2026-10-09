@@ -39,7 +39,9 @@ at 100 shots per expectation value. For circuits the noiseless attack breaks, th
 roughly $S^{-1/2}$ in the number of shots $S$. Raising the attacker's budget from 10 to 50 restarts recovered the input on 17--18 of
 20 seeds for three of the four hardest 8-qubit circuits, and on 5 of 20 for the fourth. Encoding
 repetitions raise the cost of the attack; of the four circuits retested at 50 restarts, only the most
-repeated one still held on most seeds.
+repeated one still held on most seeds. In 560 further attacks, a batch of inputs protected them only
+once its unknowns outnumbered the effective parameters, and hiding binary labels made no
+significant difference.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -72,6 +74,9 @@ contributions are:
   \item A restart-budget experiment showing that most attacks counted as stuck succeed with more
   restarts, which turns ``stuck'' into a cost measured in restarts per success
   (Section~\ref{sec:budget}).
+  \item A batch-size sweep and a hidden-label attack, 560 attacks in all, showing that a batch
+  protected the input once its unknowns outnumbered the effective parameters
+  (Sections~\ref{sec:rq3} and~\ref{sec:rq4}).
   \item An open-source JAX simulator and attack harness, checked against PennyLane, with every
   attack's raw result committed (\url{https://github.com/ajbarea/csci739-qfl-privacy}).
 \end{itemize}
@@ -162,8 +167,8 @@ $[0,\pi)^N$ and keeps the restart with the lowest $\mathcal L$, which is all an 
 the true input can do.
 
 With a batch $X = (x_1,\dots,x_B)$ the client sends the mean gradient
-$g = \frac1B\sum_i \nabla_\theta(f(x_i;\theta) - y_i)^2$, and the attacker solves for all $B$
-inputs at once. The gradient does not reveal the order of the batch, so the reconstruction error
+$g = \frac1B\sum_i \nabla_\theta(f(x_i;\theta) - y_i)^2$. The attacker solves for all $B$ inputs
+at once. The gradient does not reveal the order of the batch, so the reconstruction error
 is the largest feature error under the best matching of reconstructed to true inputs (a bottleneck
 assignment).
 
@@ -174,8 +179,8 @@ best weights in closed form and minimizes
 \[
   \mathcal L_{\bar y}(\hat X) = \min_{c\in\mathbb R^B} \big\|J^\top c - g\big\|_2^2,
 \]
-solving the $B\times B$ normal equations with a ridge of $10^{-12}$ times the mean of
-$\|\nabla_\theta f(\hat x_i)\|^2$. For $B = 1$ the loss depends only on the angle between the two
+solving the $B\times B$ normal equations. A ridge of $10^{-12}$ times the mean of
+$\|\nabla_\theta f(\hat x_i)\|^2$ keeps them solvable. For $B = 1$ the loss depends only on the angle between the two
 gradients, as in the cosine matching of Geiping et al.~\cite{geiping2020}. Clients in RQ4 draw
 each $y_i$ from $\{-1, +1\}$, and the same clients are attacked with the labels known for
 comparison.
@@ -327,6 +332,78 @@ Qubits & $r\times\ell$ & Params & 10 restarts & 50 restarts & Per restart \\
   of 0.87~s on a shared CPU, so 90 restarts cost the attacker under two minutes.
 \end{itemize}
 
+\subsection{RQ3: Batch Size}\label{sec:rq3}
+A batch of $B$ inputs gives the attacker $NB$ unknowns against the same $P_{\mathrm{eff}}$ gradient
+entries. We attacked the $1\times2$ and $1\times4$ circuits at 4 and 8 qubits with
+$B \in \{2, 4, 8\}$, exact gradients, the label $y = 1$ known, and 10 restarts. The $B = 1$ rows
+are the RQ1 attacks (Table~\ref{tab:rq3}, Fig.~\ref{fig:batch}).
+
+\begin{table}[t]
+\caption{RQ3 outcomes over 20 seeds per row (exact gradients, known label, 10 restarts). Error is
+the median, over seeds, of the worst-matched input's error in radians.}
+\label{tab:rq3}
+\centering
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}cccccccccc@{}}
+\toprule
+Qubits & $r\times\ell$ & Params & $B$ & $NB$ & Recov. & Close & Ambig. & Stuck & Error \\
+\midrule
+\inputrows{tables/rq3.tex}
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/batch.pdf}
+\caption{Fraction of 20 seeds recovered against unknown inputs per effective parameter,
+$NB/P_{\mathrm{eff}}$, for $B = 1, 2, 4, 8$ along each line. The dashed line marks as many unknowns
+as effective parameters. Bars are 95\% Wilson intervals.}
+\label{fig:batch}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Recovery stopped where the unknowns outnumbered the effective parameters.} Every
+  circuit recovered the input on at least 12 of 20 seeds with $NB < P_{\mathrm{eff}}$, and on none
+  with $NB > P_{\mathrm{eff}}$. This is the overparameterization condition of Papadopoulos et
+  al.~\cite{papadopoulos2025}.
+  \item \textbf{Past that point every seed was ambiguous.} The attacker found a different batch that
+  fits the gradient as well as the true one, with its worst-matched input a median of 1.1 to 2.5~rad
+  from the truth. The gradient alone no longer singles out the true batch.
+  \item \textbf{Below it, the 8-qubit failures were stuck.} The $1\times2$ circuit was stuck on 6
+  seeds at $B = 2$, and the $1\times4$ circuit on 8 seeds at $B = 4$. More unknowns made the search
+  harder before they made the answer ambiguous.
+\end{itemize}
+
+\subsection{RQ4: Unknown Label}\label{sec:rq4}
+We attacked the same four circuits with $B \in \{1, 2\}$. Each client drew its labels from
+$\{-1, +1\}$ and was attacked twice from the same starting points: with the labels known, and with
+the label-free loss $\mathcal L_{\bar y}$ (Table~\ref{tab:rq4}).
+
+\begin{table}[t]
+\caption{RQ4 outcomes over 20 seeds (exact gradients, 10 restarts) as
+recovered/close/ambiguous/stuck. Both columns attack the same clients. $p$ is the exact McNemar
+test of recovery on the paired seeds.}
+\label{tab:rq4}
+\centering
+\begin{tabular}{@{}cccccc@{}}
+\toprule
+Qubits & $r\times\ell$ & $B$ & Known & Unknown & $p$ \\
+\midrule
+\inputrows{tables/rq4.tex}
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{Hiding the label did not measurably protect the input.} With $B = 1$ the
+  label-free attack recovered 19 or 20 of 20 seeds on every circuit, within one seed of the attack
+  that knew the label.
+  \item \textbf{The largest difference was not significant.} On the 8-qubit $1\times2$ circuit with
+  $B = 2$, 13 seeds were recovered with the labels and 6 without, an exact McNemar $p = 0.065$ on
+  the paired seeds. The extra failures were stuck (14 against 7), not ambiguous.
+\end{itemize}
+
 \section{Discussion and Limitations}
 \emph{What the regimes say about each claim.} Encoding repetitions made the attack harder at a fixed
 parameter count, which points the same way as Kumar et al.'s mechanism~\cite{kumar2023}: more
@@ -349,18 +426,20 @@ circuit size, and our two sizes cannot test that.
 \begin{itemize}
   \item All circuits are simulated and at most 8 qubits. The results show where each claim holds
   at this size, not how it scales.
-  \item The client's parameters are untrained and the batch size is 1. Training changes the
-  gradient's frequency content: Kumar et al.\ found that fitting a low-frequency target reduced
-  privacy~\cite{kumar2023}. Batches mix several inputs into one gradient.
-  \item The label is known to the attacker.
+  \item The client's parameters are untrained. Training changes the gradient's frequency content:
+  Kumar et al.\ found that fitting a low-frequency target reduced privacy~\cite{kumar2023}.
+  \item A batch's error is that of its worst-matched input. We did not measure how many inputs of
+  an ambiguous batch were still recovered.
+  \item Labels are binary. An attacker could also try all $2^B$ labelings with the known-label
+  loss; we did not test that attack.
   \item Shot noise is the only device noise modelled. Gate and readout noise are future work.
   \item We do not measure trainability, which Heredge et al.\ tie to the same structure that
   enables the attack~\cite{heredge2025}.
 \end{itemize}
 
 \section{Conclusion}
-On simulated 4- and 8-qubit re-uploading circuits, against an attacker who knows the circuit and the
-label, we asked when the client's input stays private on most seeds.
+On simulated 4- and 8-qubit re-uploading circuits, against an attacker who knows the circuit and its
+parameters, we asked when the client's input stays private on most seeds.
 
 With exact gradients, two settings kept the input private on most seeds. With exactly as many
 effective parameters as inputs, the gradient had several exact preimages. Against the 8-qubit
@@ -375,6 +454,11 @@ so for $1\times4$ and $4\times1$. The 8-qubit $4\times1$ circuit stayed private 
 every shot count, but without noise 50 restarts recovered it on 17 of 20 seeds; we did not run 50
 restarts under noise. At 4 qubits every circuit leaked on at least half the seeds at every
 shot count we tried.
+
+Batching protected the input once the batch held more unknowns than the circuit had effective
+parameters, and from that point every attack found a different batch with the same gradient. Below
+that point a larger batch left more attacks stuck at 10 restarts. Hiding binary labels did not
+significantly change recovery at batch sizes 1 and 2.
 
 Whether a client can still train on gradients as noisy as 100 shots, and whether the attacker's cost
 grows exponentially with circuit size as Kumar et al.\ predict, are the questions this setup leaves

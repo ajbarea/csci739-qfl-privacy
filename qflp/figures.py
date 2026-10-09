@@ -22,6 +22,15 @@ from qflp.summarize import CLOSE_RAD, best_outcome, load, outcomes, table
 STYLE = [("#0072B2", "o"), ("#D55E00", "s"), ("#009E73", "^")]
 
 
+def mcnemar_exact(only_a: int, only_b: int) -> float:
+    """Two-sided exact McNemar p-value from the two discordant counts of a paired comparison."""
+    n = only_a + only_b
+    if n == 0:
+        return 1.0
+    tail = sum(math.comb(n, i) for i in range(min(only_a, only_b) + 1))
+    return min(1.0, 2 * tail / 2**n)
+
+
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     """95% Wilson score interval for k successes in n trials."""
     p = k / n
@@ -244,11 +253,13 @@ def batch_map(rows: list[dict], out: Path) -> None:
 
 
 def batch_table(rows: list[dict], out: Path) -> None:
-    """LaTeX rows: qubits, reps x layers, effective params, batch, unknowns, four outcome counts."""
+    """LaTeX rows: qubits, reps x layers, effective params, batch, unknowns, four outcome counts,
+    and the median error of the worst-matched input."""
     lines = [
         f"{s['n_qubits']} & ${s['reps']}\\times{s['layers']}$ & {s['n_effective']} & "
         f"{s['batch']} & {s['n_qubits'] * s['batch']} & "
-        f"{s['recovered']} & {s['close']} & {s['ambiguous']} & {s['stuck']} \\\\"
+        f"{s['recovered']} & {s['close']} & {s['ambiguous']} & {s['stuck']} & "
+        f"{s['median_error']:.2f} \\\\"
         for s in table(_exact_fixed(rows))
     ]
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -256,19 +267,33 @@ def batch_table(rows: list[dict], out: Path) -> None:
 
 
 def label_table(rows: list[dict], out: Path) -> None:
-    """LaTeX rows: qubits, reps x layers, batch, then recovered/close/ambiguous/stuck with the
-    label known and with it unknown, on the same clients."""
+    """LaTeX rows: qubits, reps x layers, batch, recovered/close/ambiguous/stuck with the label
+    known and with it unknown on the same clients, and the exact McNemar p-value for recovery."""
+    rows = [r for r in rows if r["shots"] == 0]
     summary = {
-        (s["n_qubits"], s["reps"], s["layers"], s["batch"], s["label"]): s
-        for s in table([r for r in rows if r["shots"] == 0])
+        (s["n_qubits"], s["reps"], s["layers"], s["batch"], s["label"]): s for s in table(rows)
+    }
+    recovered = {
+        (r["n_qubits"], r["reps"], r["layers"], r["batch"], r["label"], r["seed"]): (
+            r["best_outcome"] == "recovered"
+        )
+        for r in rows
     }
     lines = []
-    for n, reps, layers, b in sorted({k[:4] for k in summary}):
+    for setting in sorted({k[:4] for k in summary}):
+        n, reps, layers, b = setting
         cells = []
         for label in ("known", "unknown"):
-            s = summary[(n, reps, layers, b, label)]
+            s = summary[(*setting, label)]
             cells.append(f"{s['recovered']}/{s['close']}/{s['ambiguous']}/{s['stuck']}")
-        lines.append(f"{n} & ${reps}\\times{layers}$ & {b} & {cells[0]} & {cells[1]} \\\\")
+        seeds = sorted({k[5] for k in recovered if k[:4] == setting})
+        pairs = [
+            (recovered[(*setting, "known", i)], recovered[(*setting, "unknown", i)]) for i in seeds
+        ]
+        p = mcnemar_exact(sum(k and not u for k, u in pairs), sum(u and not k for k, u in pairs))
+        lines.append(
+            f"{n} & ${reps}\\times{layers}$ & {b} & {cells[0]} & {cells[1]} & {p:.3f} \\\\"
+        )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n")
 

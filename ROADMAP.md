@@ -31,4 +31,6 @@ threat models, qualifiers, three different definitions of "overparameterized").
 - 2026-10-08: JAX harness (#10); RQ1 (400 attacks, 4 and 8 qubits) and RQ2 (600 attacks, 1e2-1e6
   shots) run with 20 seeds. Encoding reps raise the stuck rate at fixed parameters; shot noise
   protects only 8-qubit circuits at ~100 shots. Report drafted from the results.
-- 2026-10-09: one-page proposal sent to the instructor.
+- 2026-10-09: one-page proposal sent to the instructor. Harness, RQ1, RQ2 and budget merged (#12).
+- 2026-10-09: client axis (#13): batch size protects only past N·B > P_eff (all ambiguous);
+  hiding binary labels made no significant difference at B = 1, 2.

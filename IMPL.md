@@ -2,33 +2,28 @@
 
 ## Now
 
-Experiment harness (#10) on `feat/experiment-harness`:
+Client axis (#13) on `feat/client-axis`:
 
-- `qflp/circuit.py`: JAX statevector simulator of the spike's circuit, `lax.scan` over blocks, so it
-  compiles once per shape (<10 s at 8 qubits, `qflp.compile_time`). Pinned to PennyLane `default.qubit` at 1e-12.
-- `qflp/attack.py`: L-BFGS-B gradient matching, 10 restarts; outcomes recovered (≤0.05 rad, mod
-  2π) / close (≤0.2 rad) / ambiguous (further away, fits as well as the true input) / stuck. The attacker keeps the lowest-loss
-  restart.
-- `qflp/noise.py`: finite-shot parameter-shift client gradient.
-- `qflp/sweep.py` (resumable JSONL), `qflp/summarize.py`, `qflp/figures.py` (all report figures
-  and generated table rows).
+- `qflp/sweep.py --label fixed|known|unknown`: `fixed` is y = 1 (all earlier sweeps; old rows load
+  as `fixed` via `rows.DEFAULTS`); `known`/`unknown` draw y ∈ {-1, +1} from a child seed stream, so
+  both modes attack the same client from the same starts.
+- `qflp/attack.py`: label-free loss = distance from g to span{∇f(x̂_i)} (B×B ridge solve,
+  `RIDGE` = 1e-12 relative); the attacker gets placeholder labels.
+- `qflp/figures.py`: `batch_map` (recovered vs N·B / P_eff), `batch_table`, `label_table` with an
+  exact McNemar p on the paired seeds.
 
-Results (`results/`, 20 seeds per setting):
+Results (`results/`, 20 seeds, exact gradients, 10 restarts):
 
-- `rq1.jsonl`, 400 attacks: every 1×ℓ circuit with ℓ ≥ 2 recovered 20/20 at 4 and 8 qubits.
-  At fixed parameters, more encoding reps → more stuck; 8 qubits, 120 effective params: 20, 18,
-  8, 2 recovered for r = 1, 2, 4, 8. r = ℓ = 1 gives a different exact preimage (16/20, 20/20).
-- `rq2.jsonl`, 600 attacks, independent shot-noise stream per run: at 4 qubits, 100 shots still
-  leaves 10-17/20 within 0.2 rad; error falls ~S^-1/2. At 8 qubits, 100 shots protects (median
-  1.0-2.4 rad, ≤1/20 within 0.2 rad); by 1e4 shots 1×4 is back to 20/20 within 0.2 rad. 4-qubit
-  4×1 is stuck on the same 4 seeds at every shot count; 8-qubit 4×1 stays stuck on 11-12.
-- `budget.jsonl`, 80 attacks with 50 restarts on 8-qubit 2×1, 4×1, 4×2, 8×1: recovered seeds rise
-  7→18, 8→17, 8→18, 2→5; per-restart success 7.9, 4.8, 6.2, 1.1%. The first 10 restarts repeat
-  RQ1 exactly.
+- `rq3.jsonl`, 240 attacks, B ∈ {2, 4, 8} on 4/8-qubit 1×2 and 1×4 (B = 1 from RQ1): ≥12/20
+  recovered whenever N·B < P_eff, 0/20 and all ambiguous whenever N·B > P_eff (worst input a median
+  1.1-2.5 rad off). Below the line, 8-qubit misses are stuck (6 at 1×2 B=2, 8 at 1×4 B=4).
+- `rq4.jsonl`, 320 attacks, B ∈ {1, 2}, labels known vs unknown on the same clients: B = 1 within
+  one seed; largest gap 8-qubit 1×2 B=2, 13 vs 6 recovered, McNemar p = 0.065.
 
-`report/report.tex` is drafted from these, every section filled; tables are generated rows.
+`report/report.tex` has RQ3 and RQ4 sections; tables and the batch figure are generated.
 
 ## Next
 
-📋 Extensions in ROADMAP order: batch size and unknown label, trained θ, Aer fake-backend noise,
-tower-encoding variant (Kumar et al.'s regime).
+📋 Extensions in ROADMAP order: trained θ, Aer fake-backend noise, tower-encoding variant (Kumar
+et al.'s regime). Open from RQ3/RQ4: per-input error inside an ambiguous batch; the 2^B
+label-enumeration attacker.
