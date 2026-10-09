@@ -321,3 +321,28 @@ def test_mcnemar_exact():
     assert mcnemar_exact(0, 0) == 1.0
     assert mcnemar_exact(9, 2) == mcnemar_exact(2, 9) == pytest.approx(0.0654, abs=1e-4)
     assert mcnemar_exact(10, 0) == pytest.approx(2 / 2**10)
+
+
+def test_label_table_pools_discordant_seeds_per_batch(tmp_path):
+    from qflp.figures import label_table
+
+    def row(n, b, label, seed, ok):
+        return {
+            "n_qubits": n, "reps": 1, "layers": 2, "shots": 0, "batch": b, "restarts": 10,
+            "label": label, "seed": seed, "n_effective": 12, "best_outcome": "recovered" if ok
+            else "stuck", "any_recovered": ok, "best_error": 0.0 if ok else 2.0,
+        }  # fmt: skip
+
+    # Circuit 4q: seed 0 recovered only with the label. Circuit 8q: seed 0 only with, seed 1 only
+    # without. Batch 1 agrees everywhere.
+    rows = [
+        row(4, 2, "known", 0, True), row(4, 2, "unknown", 0, False),
+        row(8, 2, "known", 0, True), row(8, 2, "unknown", 0, False),
+        row(8, 2, "known", 1, False), row(8, 2, "unknown", 1, True),
+        row(4, 1, "known", 0, True), row(4, 1, "unknown", 0, True),
+    ]  # fmt: skip
+    macros = label_table(rows, tmp_path / "rq4.tex")
+    assert (macros["LabelKnownOnlyTwo"], macros["LabelUnknownOnlyTwo"]) == ("2", "1")
+    assert (macros["LabelKnownOnlyOne"], macros["LabelUnknownOnlyOne"]) == ("0", "0")
+    assert macros["LabelPooledPTwo"] == "1.000"
+    assert len((tmp_path / "rq4.tex").read_text().splitlines()) == 3

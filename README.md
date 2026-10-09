@@ -40,10 +40,11 @@ rows in
 - Against 10 restarts, shot noise protects 8-qubit circuits at about 100 shots per expectation
   value. For circuits the noiseless attack breaks, the reconstruction error then falls as about
   S^-1/2.
-- A batch of B inputs protected them only once its N·B unknowns outnumbered the effective
-  parameters; past that point every seed had a different batch with the same gradient.
-- Hiding binary labels (a label-free attack that solves for each sample's gradient weight) made no
-  significant difference at B = 1 and 2.
+- Batches of B inputs leaked at up to 0.67 unknowns (N·B) per effective parameter and never from
+  1.14 up, where every seed had a different batch with the same gradient.
+- Hiding binary labels (a label-free attack that solves for each sample's gradient weight) made
+  almost no difference at B = 1; at B = 2 it left more attacks stuck (13 vs 3 discordant seeds
+  pooled over circuits, exact McNemar p = 0.021).
 
 ## Run it
 

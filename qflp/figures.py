@@ -252,50 +252,88 @@ def batch_map(rows: list[dict], out: Path) -> None:
     _save(fig, out)
 
 
-def batch_table(rows: list[dict], out: Path) -> None:
+def batch_table(rows: list[dict], out: Path) -> dict[str, str]:
     """LaTeX rows: qubits, reps x layers, effective params, batch, unknowns, four outcome counts,
-    and the median error of the worst-matched input."""
+    and the median error of the worst-matched input.
+
+    Returns report macros: the largest unknowns-per-parameter ratio with any recovery, the
+    smallest with none, the fewest seeds recovered below a ratio of 1, and the range of median
+    errors among settings past it."""
+    summary = table(_exact_fixed(rows))
+    ratio = {id(s): s["n_qubits"] * s["batch"] / s["n_effective"] for s in summary}
+    leaked = [s for s in summary if s["recovered"] > 0]
+    held = [s for s in summary if s["recovered"] == 0]
+    if max(ratio[id(s)] for s in leaked) >= min(ratio[id(s)] for s in held):
+        raise ValueError("recovery does not separate on unknowns per effective parameter")
+    errors = [s["median_error"] for s in summary if ratio[id(s)] > 1]
     lines = [
         f"{s['n_qubits']} & ${s['reps']}\\times{s['layers']}$ & {s['n_effective']} & "
         f"{s['batch']} & {s['n_qubits'] * s['batch']} & "
         f"{s['recovered']} & {s['close']} & {s['ambiguous']} & {s['stuck']} & "
         f"{s['median_error']:.2f} \\\\"
-        for s in table(_exact_fixed(rows))
+        for s in summary
     ]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n")
-
-
-def label_table(rows: list[dict], out: Path) -> None:
-    """LaTeX rows: qubits, reps x layers, batch, recovered/close/ambiguous/stuck with the label
-    known and with it unknown on the same clients, and the exact McNemar p-value for recovery."""
-    rows = [r for r in rows if r["shots"] == 0]
-    summary = {
-        (s["n_qubits"], s["reps"], s["layers"], s["batch"], s["label"]): s for s in table(rows)
+    return {
+        "BatchLeakMaxRatio": f"{max(ratio[id(s)] for s in leaked):.2f}",
+        "BatchHeldMinRatio": f"{min(ratio[id(s)] for s in held):.2f}",
+        "BatchFewestRecoveredBelow": str(min(s["recovered"] for s in summary if ratio[id(s)] < 1)),
+        "BatchAmbigErrLow": f"{min(errors):.1f}",
+        "BatchAmbigErrHigh": f"{max(errors):.1f}",
     }
+
+
+def label_table(rows: list[dict], out: Path) -> dict[str, str]:
+    """LaTeX rows: qubits, reps x layers, batch, recovered/close/ambiguous/stuck with the label
+    known and with it unknown on the same clients, and the exact McNemar p-value for recovery.
+
+    Returns report macros for the same test pooled over circuits at each batch size. Clients are
+    independent across circuits, so their discordant pairs add."""
+    rows = [r for r in rows if r["shots"] == 0]
+    setting = ("n_qubits", "reps", "layers", "batch", "restarts")
+    summary = {(*(s[k] for k in setting), s["label"]): s for s in table(rows)}
     recovered = {
-        (r["n_qubits"], r["reps"], r["layers"], r["batch"], r["label"], r["seed"]): (
-            r["best_outcome"] == "recovered"
-        )
+        (*(r[k] for k in setting), r["label"], r["seed"]): r["best_outcome"] == "recovered"
         for r in rows
     }
     lines = []
-    for setting in sorted({k[:4] for k in summary}):
-        n, reps, layers, b = setting
+    pooled: dict[int, list[int]] = defaultdict(lambda: [0, 0])
+    for key in sorted({k[:-1] for k in summary}):
+        n, reps, layers, b, _ = key
         cells = []
         for label in ("known", "unknown"):
-            s = summary[(*setting, label)]
+            s = summary[(*key, label)]
             cells.append(f"{s['recovered']}/{s['close']}/{s['ambiguous']}/{s['stuck']}")
-        seeds = sorted({k[5] for k in recovered if k[:4] == setting})
-        pairs = [
-            (recovered[(*setting, "known", i)], recovered[(*setting, "unknown", i)]) for i in seeds
-        ]
-        p = mcnemar_exact(sum(k and not u for k, u in pairs), sum(u and not k for k, u in pairs))
+        seeds = sorted({k[-1] for k in recovered if k[:5] == key})
+        pairs = [(recovered[(*key, "known", i)], recovered[(*key, "unknown", i)]) for i in seeds]
+        only = [sum(k and not u for k, u in pairs), sum(u and not k for k, u in pairs)]
+        pooled[b][0] += only[0]
+        pooled[b][1] += only[1]
         lines.append(
-            f"{n} & ${reps}\\times{layers}$ & {b} & {cells[0]} & {cells[1]} & {p:.3f} \\\\"
+            f"{n} & ${reps}\\times{layers}$ & {b} & {cells[0]} & {cells[1]} & "
+            f"{mcnemar_exact(*only):.3f} \\\\"
         )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n")
+    macros = {}
+    for b, (known_only, unknown_only) in sorted(pooled.items()):
+        name = _batch_name(b)
+        macros[f"LabelKnownOnly{name}"] = str(known_only)
+        macros[f"LabelUnknownOnly{name}"] = str(unknown_only)
+        macros[f"LabelPooledP{name}"] = f"{mcnemar_exact(known_only, unknown_only):.3f}"
+    return macros
+
+
+def _batch_name(b: int) -> str:
+    """Batch size as a LaTeX-safe macro suffix (macro names cannot hold digits)."""
+    return ("One", "Two", "Four", "Eight")[(1, 2, 4, 8).index(b)]
+
+
+def write_macros(macros: dict[str, str], out: Path) -> None:
+    """Numbers quoted in the report prose, as \\newcommand definitions."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("".join(f"\\newcommand{{\\{k}}}{{{v}}}\n" for k, v in sorted(macros.items())))
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -312,6 +350,7 @@ def main(argv: list[str] | None = None) -> None:
     budget = args.results / "budget.jsonl"
     if budget.exists():
         budget_table(load([budget]), args.report / "tables" / "budget.tex")
+    macros: dict[str, str] = {}
     rq3 = args.results / "rq3.jsonl"
     if rq3.exists():
         # Batch 1 of the same circuits is already in RQ1.
@@ -319,10 +358,11 @@ def main(argv: list[str] | None = None) -> None:
         base = [r for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) in circuits]
         batch = base + load([rq3])
         batch_map(batch, args.report / "figures" / "batch.pdf")
-        batch_table(batch, args.report / "tables" / "rq3.tex")
+        macros.update(batch_table(batch, args.report / "tables" / "rq3.tex"))
     rq4 = args.results / "rq4.jsonl"
     if rq4.exists():
-        label_table(load([rq4]), args.report / "tables" / "rq4.tex")
+        macros.update(label_table(load([rq4]), args.report / "tables" / "rq4.tex"))
+    write_macros(macros, args.report / "tables" / "numbers.tex")
 
 
 if __name__ == "__main__":

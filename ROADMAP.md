@@ -32,5 +32,6 @@ threat models, qualifiers, three different definitions of "overparameterized").
   shots) run with 20 seeds. Encoding reps raise the stuck rate at fixed parameters; shot noise
   protects only 8-qubit circuits at ~100 shots. Report drafted from the results.
 - 2026-10-09: one-page proposal sent to the instructor. Harness, RQ1, RQ2 and budget merged (#12).
-- 2026-10-09: client axis (#13): batch size protects only past N·B > P_eff (all ambiguous);
-  hiding binary labels made no significant difference at B = 1, 2.
+- 2026-10-09: client axis (#13): batches leak up to N·B/P_eff = 0.67 and never from 1.14 up (all
+  ambiguous); hiding binary labels changes nothing at B = 1 and leaves more attacks stuck at B = 2
+  (pooled McNemar p = 0.021).
