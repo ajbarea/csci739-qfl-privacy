@@ -43,8 +43,8 @@ circuit, its parameters and the label; one sample; 20 seeds per setting; raw row
 ```bash
 uv sync --all-groups
 uv run pytest -q
-uv run python -m qflp.sweep --qubits 4 --grid 1x4 4x1 --seeds 20 --out results/demo.jsonl
-uv run python -m qflp.summarize results/demo.jsonl
+uv run python -m qflp.sweep --qubits 4 --grid 1x4 4x1 --seeds 3 --out /tmp/qflp-demo.jsonl
+uv run python -m qflp.summarize /tmp/qflp-demo.jsonl
 ```
 
 The attack runs on `qflp`, a small JAX statevector simulator, because it needs the gradient of a

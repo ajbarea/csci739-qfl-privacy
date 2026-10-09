@@ -337,15 +337,22 @@ circuit size, and our two sizes cannot test that.
 
 \section{Conclusion}
 On simulated 4- and 8-qubit re-uploading circuits, against an attacker who knows the circuit and the
-label, a VQC kept a client's input private on most seeds in two situations. With exactly as many
-effective parameters as inputs, the gradient had several exact preimages. At 8 qubits, a gradient
-estimated from about 100 shots per expectation value was too noisy to invert. Every other circuit
-leaked its input on most seeds within 10 restarts, or within 50 for three of the four circuits we
-retested. Moving parameters into encoding repetitions made each restart less likely to succeed. The
-fourth retested circuit, $8\times1$, succeeded on 1.1\% of restarts and still gave up its input on
-5 of 20 seeds. Whether a
-client can still train on gradients as noisy as 100 shots, and whether the attacker's cost grows
-exponentially with circuit size as Kumar et al.\ predict, are the questions this setup leaves open.
+label, we asked when the client's input stays private on most seeds.
+
+With exact gradients, only one regime protected it: exactly as many effective parameters as
+inputs, where the gradient had several exact preimages. Every other circuit leaked its input on
+most seeds within 10 restarts, or within 50 for three of the four circuits we retested. Moving
+parameters into encoding repetitions made each restart less likely to succeed. The fourth retested
+circuit, $8\times1$, succeeded on 1.1\% of restarts and still gave up its input on 5 of 20 seeds.
+
+Under shot noise, a reconstruction within 0.2~rad counts as a leak. At 8 qubits, 100 shots per
+expectation value kept every circuit private on most seeds, and 1000 shots did so for $1\times4$
+and $4\times1$. The 8-qubit $4\times1$ circuit, which also resists the noiseless attack, never
+leaked on most seeds at any shot count. At 4 qubits no shot count we tried protected the input.
+
+Whether a client can still train on gradients as noisy as 100 shots, and whether the attacker's cost
+grows exponentially with circuit size as Kumar et al.\ predict, are the questions this setup leaves
+open.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}

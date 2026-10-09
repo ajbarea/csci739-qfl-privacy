@@ -8,39 +8,13 @@ raw error and loss with `qflp.attack.classify`, so a threshold change never need
 """
 
 import argparse
-import json
-import os
+import math
 import statistics
 from collections import defaultdict
 from pathlib import Path
 
 from qflp.attack import CLOSE_RAD, OUTCOMES, classify
-
-SETTING = ("n_qubits", "reps", "layers", "shots", "batch", "restarts")
-KEY = (*SETTING, "seed")  # one row per run
-
-
-def read_rows(path: Path, repair: bool = False) -> list[dict]:
-    """Every row of a sweep file.
-
-    Only a partial last line (no trailing newline, as a killed sweep leaves) is tolerated: it is
-    skipped, and with `repair` removed from the file by an atomic rewrite. Any other line that is
-    not JSON raises, so a non-sweep file is never silently emptied.
-    """
-    lines = path.read_text().splitlines(keepends=True)
-    rows = []
-    for i, line in enumerate(lines):
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            if i == len(lines) - 1 and not line.endswith("\n"):
-                if repair:
-                    tmp = path.with_name(path.name + ".tmp")
-                    tmp.write_text("".join(lines[:-1]))
-                    os.replace(tmp, path)
-                break
-            raise ValueError(f"{path}:{i + 1} is not a sweep row") from None
-    return rows
+from qflp.rows import KEY, SETTING, read_rows
 
 
 def outcomes(row: dict) -> list[str]:
@@ -51,10 +25,14 @@ def outcomes(row: dict) -> list[str]:
     ]
 
 
+def _finite(x: float) -> float:
+    return x if math.isfinite(x) else math.inf
+
+
 def best_outcome(row: dict, budget: int | None = None) -> str:
     """Outcome of the lowest-loss restart among the first `budget` (default: all)."""
     detail = row["restarts_detail"][:budget]
-    best = min(range(len(detail)), key=lambda i: detail[i]["match"])
+    best = min(range(len(detail)), key=lambda i: _finite(detail[i]["match"]))
     return outcomes(row)[best]
 
 

@@ -129,7 +129,7 @@ def attack(
 
 def best_restart(restarts: list[Restart]) -> Restart:
     """What an attacker without the ground truth would keep: the lowest matching loss."""
-    return min(restarts, key=lambda r: r.match)
+    return min(restarts, key=lambda r: r.match if np.isfinite(r.match) else np.inf)
 
 
 def as_dict(r: Restart) -> dict:

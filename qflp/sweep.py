@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-from qflp.summarize import KEY, read_rows
+from qflp.rows import KEY, read_rows
 
 
 def run_one(job: dict) -> dict:
@@ -72,14 +72,16 @@ def _done(path: Path) -> set[tuple]:
 
 
 def _commit() -> str:
+    """Short hash of the checkout this package runs from, +dirty if qflp/ has local changes."""
+    here = Path(__file__).resolve().parent
     try:
 
         def git(*cmd: str) -> str:
             return subprocess.run(
-                ["git", *cmd], capture_output=True, text=True, check=True
+                ["git", "-C", str(here), *cmd], capture_output=True, text=True, check=True
             ).stdout.strip()
 
-        dirty = git("status", "--porcelain", "--untracked-files=no", "--", "qflp")
+        dirty = git("status", "--porcelain", "--untracked-files=no", "--", ".")
         return git("rev-parse", "--short", "HEAD") + ("+dirty" if dirty else "")
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
