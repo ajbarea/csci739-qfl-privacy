@@ -12,7 +12,7 @@ from qflp.circuit import Circuit
 from qflp.noise import shot_gradient
 from qflp.rows import KEY, ROW_START, read_rows
 from qflp.summarize import load, table
-from qflp.sweep import _done, run_one
+from qflp.sweep import _done
 from qflp.sweep import main as sweep_main
 
 
@@ -186,11 +186,13 @@ def test_repair_leaves_non_rows_untouched(tmp_path, text):
     assert path.read_text() == text
 
 
-def test_a_sweep_row_starts_as_repair_expects():
-    job = {"n_qubits": 2, "reps": 1, "layers": 1, "seed": 0, "shots": 0, "batch": 1, "restarts": 1}
-    row = run_one(job)
-    assert json.dumps(row).startswith(ROW_START)
-    assert all(k in row for k in KEY)
+def test_a_sweep_row_starts_as_repair_expects(tmp_path):
+    path = tmp_path / "out.jsonl"
+    args = ["--qubits", "2", "--grid", "1x1", "--seeds", "1", "--restarts", "1", "--workers", "1"]
+    sweep_main([*args, "--out", str(path)])
+    (line,) = path.read_text().splitlines()
+    assert line.startswith(ROW_START)
+    assert all(k in json.loads(line) for k in KEY)
 
 
 def test_sweep_refuses_a_file_another_sweep_holds(tmp_path):

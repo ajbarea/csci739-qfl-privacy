@@ -341,9 +341,9 @@ On simulated 4- and 8-qubit re-uploading circuits, against an attacker who knows
 label, we asked when the client's input stays private on most seeds.
 
 With exact gradients, two settings kept the input private on most seeds. With exactly as many
-effective parameters as inputs, the gradient had several exact preimages. The 8-qubit $8\times1$
-circuit, the attack found the input on 1.1\% of restarts and stayed private on 15 of 20 seeds after 50
-restarts. Every other circuit leaked its input on most seeds within 10 restarts, or within 50 for
+effective parameters as inputs, the gradient had several exact preimages. Against the 8-qubit
+$8\times1$ circuit the attack found the input on 1.1\% of restarts, and the input stayed private on
+15 of 20 seeds after 50 restarts. Every other circuit leaked its input on most seeds within 10 restarts, or within 50 for
 the other three circuits we retested. Moving parameters into encoding repetitions made each restart
 less likely to succeed.
 
