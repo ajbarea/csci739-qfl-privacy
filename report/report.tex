@@ -34,11 +34,12 @@ matching loss. Over 400 attacks, every circuit with one encoding layer and at le
 layers gave up its input on 20 of 20 seeds. At a fixed parameter count, trading trainable layers for
 encoding repetitions left the attack stuck in local minima more often. At 8 qubits and 120
 effective parameters, the input was recovered on 20, 18, 8 and 2 of 20 seeds for 1, 2, 4 and 8
-repetitions. Shot noise in the client's gradient protected 8-qubit circuits at 100 shots per
-expectation value. For circuits the noiseless attack breaks, the reconstruction error then fell as
+repetitions. Against 10 restarts, shot noise in the client's gradient protected 8-qubit circuits
+at 100 shots per expectation value. For circuits the noiseless attack breaks, the reconstruction error then fell as
 roughly $S^{-1/2}$ in the number of shots $S$. Raising the attacker's budget from 10 to 50 restarts recovered the input on 17--18 of
-20 seeds for three of the four hardest 8-qubit circuits, and on 5 of 20 for the fourth. At this
-scale, encoding repetitions raise the cost of the attack rather than preventing it.
+20 seeds for three of the four hardest 8-qubit circuits, and on 5 of 20 for the fourth. Encoding
+repetitions raise the cost of the attack; only the most repeated circuit still held on most seeds at
+50 restarts.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -338,16 +339,19 @@ circuit size, and our two sizes cannot test that.
 On simulated 4- and 8-qubit re-uploading circuits, against an attacker who knows the circuit and the
 label, we asked when the client's input stays private on most seeds.
 
-With exact gradients, only one regime protected it: exactly as many effective parameters as
-inputs, where the gradient had several exact preimages. Every other circuit leaked its input on
-most seeds within 10 restarts, or within 50 for three of the four circuits we retested. Moving
-parameters into encoding repetitions made each restart less likely to succeed. The fourth retested
-circuit, $8\times1$, succeeded on 1.1\% of restarts and still gave up its input on 5 of 20 seeds.
+With exact gradients, two settings kept the input private on most seeds. With exactly as many
+effective parameters as inputs, the gradient had several exact preimages. The 8-qubit $8\times1$
+circuit found the input on 1.1\% of restarts and stayed private on 15 of 20 seeds after 50
+restarts. Every other circuit leaked its input on most seeds within 10 restarts, or within 50 for
+the other three circuits we retested. Moving parameters into encoding repetitions made each restart
+less likely to succeed.
 
-Under shot noise, a reconstruction within 0.2~rad counts as a leak. At 8 qubits, 100 shots per
-expectation value kept every circuit private on most seeds, and 1000 shots did so for $1\times4$
-and $4\times1$. The 8-qubit $4\times1$ circuit, which also resists the noiseless attack, never
-leaked on most seeds at any shot count. At 4 qubits no shot count we tried protected the input.
+Under shot noise we ran 10 restarts and counted a reconstruction within 0.2~rad as a leak. At 8
+qubits, 100 shots per expectation value kept every circuit private on most seeds, and 1000 shots did
+so for $1\times4$ and $4\times1$. The 8-qubit $4\times1$ circuit stayed private on most seeds at
+every shot count, but without noise 50 restarts recovered it on 17 of 20 seeds; we did not run 50
+restarts under noise. At 4 qubits every circuit leaked on at least half the seeds at every
+shot count we tried.
 
 Whether a client can still train on gradients as noisy as 100 shots, and whether the attacker's cost
 grows exponentially with circuit size as Kumar et al.\ predict, are the questions this setup leaves

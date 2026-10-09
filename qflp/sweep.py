@@ -7,6 +7,7 @@ skipped, so an interrupted sweep continues where it stopped.
 """
 
 import argparse
+import fcntl
 import json
 import multiprocessing as mp
 import os
@@ -117,34 +118,37 @@ def main(argv: list[str] | None = None) -> None:
         for b in args.batch
         for s in range(args.seeds)
     ]
-    done = _done(args.out)
-    todo = [j for j in jobs if tuple(j[k] for k in KEY) not in done]
-    print(f"{len(jobs)} runs, {len(jobs) - len(todo)} already in {args.out}, {len(todo)} to go")  # noqa: T201
     args.out.parent.mkdir(parents=True, exist_ok=True)
     meta = {"commit": _commit(), "python": platform.python_version()}
     # spawn, not fork: JAX is multithreaded and fork after import can deadlock.
     ctx = mp.get_context("spawn")
-    with (
-        ProcessPoolExecutor(args.workers, mp_context=ctx) as pool,
-        args.out.open("a") as fh,
-    ):
-        futures = {pool.submit(run_one, j): j for j in todo}
-        failed = 0
-        for i, fut in enumerate(as_completed(futures), 1):
-            try:
-                row = {**fut.result(), **meta}
-            except Exception as exc:  # one bad run must not discard the rest
-                failed += 1
-                print(f"[{i}/{len(todo)}] FAILED {futures[fut]}: {exc!r}", flush=True)  # noqa: T201
-                continue
-            fh.write(json.dumps(row) + "\n")
-            fh.flush()
-            print(  # noqa: T201
-                f"[{i}/{len(todo)}] {row['n_qubits']}q {row['reps']}x{row['layers']} "
-                f"seed={row['seed']} shots={row['shots']} batch={row['batch']}: "
-                f"{row['best_outcome']} ({row['seconds']:.1f}s)",
-                flush=True,
-            )
+    with args.out.open("a") as fh:
+        # Held from the resume repair to the last append, so two sweeps never share one file.
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            ap.error(f"another sweep is writing {args.out}")
+        done = _done(args.out)
+        todo = [j for j in jobs if tuple(j[k] for k in KEY) not in done]
+        print(f"{len(jobs)} runs, {len(jobs) - len(todo)} already in {args.out}, {len(todo)} to go")  # noqa: T201
+        with ProcessPoolExecutor(args.workers, mp_context=ctx) as pool:
+            futures = {pool.submit(run_one, j): j for j in todo}
+            failed = 0
+            for i, fut in enumerate(as_completed(futures), 1):
+                try:
+                    row = {**fut.result(), **meta}
+                except Exception as exc:  # one bad run must not discard the rest
+                    failed += 1
+                    print(f"[{i}/{len(todo)}] FAILED {futures[fut]}: {exc!r}", flush=True)  # noqa: T201
+                    continue
+                fh.write(json.dumps(row) + "\n")
+                fh.flush()
+                print(  # noqa: T201
+                    f"[{i}/{len(todo)}] {row['n_qubits']}q {row['reps']}x{row['layers']} "
+                    f"seed={row['seed']} shots={row['shots']} batch={row['batch']}: "
+                    f"{row['best_outcome']} ({row['seconds']:.1f}s)",
+                    flush=True,
+                )
     if failed:
         raise SystemExit(f"{failed} of {len(todo)} runs failed; rerun to retry them")
 

@@ -1,3 +1,4 @@
+import fcntl
 import itertools
 import json
 
@@ -164,6 +165,35 @@ def test_repair_keeps_the_file_identity(tmp_path):
     assert link.is_symlink()
     assert target.stat().st_ino == inode
     assert target.read_text() == json.dumps(row) + "\n"
+
+
+@pytest.mark.parametrize("sep", ["\n", "\r", "\r\n"])
+def test_repair_truncates_only_the_cut_off_row(tmp_path, sep):
+    row = {"n_qubits": 4, "reps": 1, "layers": 1, "shots": 0, "batch": 1, "restarts": 3, "seed": 0}
+    kept = json.dumps(row) + sep + json.dumps({**row, "seed": 1}) + sep
+    path = tmp_path / "out.jsonl"
+    path.write_bytes((kept + '{"n_qubits": 4, "re').encode())
+    assert len(_done(path)) == 2
+    assert path.read_bytes() == kept.encode()
+
+
+@pytest.mark.parametrize("text", ["{\\bf hello}", '{"a": 1}', '{"a": 1}\n'])
+def test_repair_leaves_non_rows_untouched(tmp_path, text):
+    path = tmp_path / "notes.jsonl"
+    path.write_text(text)
+    with pytest.raises(ValueError, match="not a sweep row"):
+        _done(path)
+    assert path.read_text() == text
+
+
+def test_sweep_refuses_a_file_another_sweep_holds(tmp_path):
+    path = tmp_path / "out.jsonl"
+    path.write_text('{"n_qubits": 4, "re')
+    with path.open("a") as other:
+        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(SystemExit):
+            sweep_main(["--out", str(path), "--seeds", "0"])
+    assert path.read_text() == '{"n_qubits": 4, "re'  # not repaired under someone else's lock
 
 
 def test_a_lone_non_json_line_is_not_emptied(tmp_path):

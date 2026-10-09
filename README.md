@@ -34,8 +34,9 @@ circuit, its parameters and the label; one sample; 20 seeds per setting; raw row
 - At a fixed parameter count, encoding repetitions leave more attacks stuck. At 8 qubits and 120
   effective parameters, 20, 18, 8 and 2 of 20 seeds were recovered for 1, 2, 4 and 8 repetitions.
 - With 50 restarts instead of 10, most stuck seeds are recovered (8 qubits: 7→18, 8→17, 8→18,
-  2→5), so encoding repetitions raise the attacker's cost rather than stopping the attack.
-- Shot noise protects 8-qubit circuits at about 100 shots per expectation value. For circuits the
+  2→5). Encoding repetitions raise the attacker's cost; only 8 repetitions still held on most
+  seeds at 50 restarts.
+- Against 10 restarts, shot noise protects 8-qubit circuits at about 100 shots per expectation value. For circuits the
   noiseless attack breaks, the reconstruction error then falls as about S^-1/2.
 
 ## Run it
