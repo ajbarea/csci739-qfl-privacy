@@ -402,3 +402,27 @@ def test_rows_from_before_the_task_axis_load_as_uniform_step_zero(tmp_path):
     path.write_text(json.dumps(row) + "\n")
     (loaded,) = read_rows(path)
     assert (loaded["task"], loaded["step"]) == ("uniform", 0)
+
+
+def test_trained_table_pairs_seeds_across_the_first_and_last_step(tmp_path):
+    from qflp.figures import trained_table
+
+    def row(step, seed, ok, g):
+        return {
+            **DEFAULTS, "n_qubits": 4, "reps": 1, "layers": 4, "shots": 0, "batch": 1,
+            "restarts": 10, "label": "known", "task": "linear", "step": step, "seed": seed,
+            "n_effective": 28, "best_outcome": "recovered" if ok else "stuck",
+            "any_recovered": ok, "best_error": 0.0 if ok else 2.0, "test_acc": 0.9,
+            "grad_norm2": g,
+        }  # fmt: skip
+
+    # Seed 0 recovered only before training, seed 1 only after; gradients shrink 4x and 2x.
+    rows = [row(0, 0, True, 4.0), row(300, 0, False, 1.0), row(0, 1, False, 2.0),
+            row(300, 1, True, 1.0), row(10, 0, True, 3.0), row(10, 1, True, 1.5)]  # fmt: skip
+    base = [{"task": "linear", "n_qubits": 4, "model": "logistic", "test_acc": 1.0}]
+    macros = trained_table(rows, base, tmp_path / "rq5.tex")
+    assert (macros["TrainedOnlyBeforeAll"], macros["TrainedOnlyAfterAll"]) == ("1", "1")
+    assert macros["TrainedFinalStep"] == "300"
+    assert macros["TrainedGradRatioMedian"] == "0.38"
+    (line,) = (tmp_path / "rq5.tex").read_text().splitlines()
+    assert line.count("/") == 9 and "0.90 (1.00)" in line
