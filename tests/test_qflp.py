@@ -269,8 +269,8 @@ def test_shot_gradient_converges_to_exact():
 
 
 def test_summary_counts_best_restart_outcomes():
-    base = {"n_qubits": 4, "reps": 1, "layers": 1, "shots": 0, "batch": 1, "restarts": 5}
-    base["label"] = "fixed"
+    base = {**DEFAULTS, "n_qubits": 4, "reps": 1, "layers": 1, "shots": 0, "batch": 1}
+    base["restarts"] = 5
     rows = [
         {**base, "seed": 0, "best_outcome": "recovered", "any_recovered": True, "best_error": 0.0},
         {**base, "seed": 1, "best_outcome": "stuck", "any_recovered": True, "best_error": 2.0},
@@ -328,6 +328,7 @@ def test_label_table_pools_discordant_seeds_per_batch(tmp_path):
 
     def row(n, b, label, seed, ok):
         return {
+            **DEFAULTS,
             "n_qubits": n, "reps": 1, "layers": 2, "shots": 0, "batch": b, "restarts": 10,
             "label": label, "seed": seed, "n_effective": 12, "best_outcome": "recovered" if ok
             else "stuck", "any_recovered": ok, "best_error": 0.0 if ok else 2.0,
@@ -349,3 +350,55 @@ def test_label_table_pools_discordant_seeds_per_batch(tmp_path):
     assert macros["LabelKnownOnlyTopTwo"] == "1"
     assert macros["LabelTopCircuitTwo"] == "8-qubit $1\\times2$"
     assert len((tmp_path / "rq4.tex").read_text().splitlines()) == 3
+
+
+def test_benchmark_tasks_are_fixed_by_seed_and_scaled_to_the_attack_domain():
+    from qflp.data import TASKS, linearly_separable, make_task
+    from qflp.sweep import TASK_NAMES
+
+    assert tuple(TASKS) == TASK_NAMES
+    for task in TASKS:
+        a, b = make_task(task, 3, 0), make_task(task, 3, 0)
+        assert all(np.array_equal(u, v) for u, v in zip(a, b, strict=True))
+        x_tr, _, y_tr, y_te = a
+        assert x_tr.min() == pytest.approx(0) and x_tr.max() == pytest.approx(np.pi)
+        assert set(np.unique(y_tr)) == {-1.0, 1.0} and len(y_tr) + len(y_te) == 300
+    x, y = linearly_separable(50, 4, 0.08, np.random.default_rng(0))
+    assert np.all(np.abs(x.sum(1)) > 0.08) and np.array_equal(y, np.where(x.sum(1) > 0, -1, 1))
+
+
+def test_training_lowers_the_loss_and_best_lr_breaks_ties_low(tmp_path):
+    from qflp.data import make_task
+    from qflp.rows import best_lr
+    from qflp.train import initial_theta, train
+
+    c = Circuit(2, 1, 2)
+    x_tr, _, y_tr, _ = make_task("linear", 2, 0)
+    _, losses = train(c, initial_theta(c, 0), x_tr, y_tr, 0.1, 40)
+    assert losses[-1] < 0.8 * losses[0]
+    rows = [
+        {"task": "linear", "n_qubits": 2, "reps": 1, "layers": 2, "lr": lr, "val_acc": acc}
+        for lr, acc in ((0.1, 0.9), (0.01, 0.9), (0.001, 0.5))
+    ]
+    path = tmp_path / "training.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in [*rows, {"model": "logistic"}]))
+    assert best_lr(path) == {("linear", 2, 1, 2): 0.01}
+
+
+def test_trained_runs_share_the_example_and_the_attack_starts_across_steps():
+    base: dict = {"n_qubits": 2, "reps": 1, "layers": 2, "seed": 1, "shots": 0, "batch": 1}
+    base |= {"restarts": 2, "label": "known", "task": "linear", "lr": 0.1}
+    before, after = run_one({**base, "step": 0}), run_one({**base, "step": 20})
+    assert before["example"] == after["example"]
+    assert before["grad_norm2"] != after["grad_norm2"]
+    assert before["true_match"] <= 1e-12 * before["grad_norm2"]
+    with pytest.raises(ValueError, match="batch 1"):
+        run_one({**base, "step": 0, "batch": 2})
+
+
+def test_rows_from_before_the_task_axis_load_as_uniform_step_zero(tmp_path):
+    row = {"n_qubits": 4, "reps": 1, "layers": 1, "shots": 0, "batch": 1, "restarts": 3, "seed": 0}
+    path = tmp_path / "old.jsonl"
+    path.write_text(json.dumps(row) + "\n")
+    (loaded,) = read_rows(path)
+    assert (loaded["task"], loaded["step"]) == ("uniform", 0)

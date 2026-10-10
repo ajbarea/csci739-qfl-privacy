@@ -11,6 +11,8 @@ dependencies = [
     "qiskit-ibm-runtime>=0.40",
     "jax>=0.9",
     "matplotlib>=3.10",
+    "optax>=0.2.8",
+    "scikit-learn>=1.7",
 ]
 
 [dependency-groups]

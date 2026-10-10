@@ -2,12 +2,14 @@
 
 import json
 import os
+import statistics
+from collections import defaultdict
 from pathlib import Path
 
-SETTING = ("n_qubits", "reps", "layers", "shots", "batch", "restarts", "label")
+SETTING = ("n_qubits", "reps", "layers", "shots", "batch", "restarts", "label", "task", "step")
 KEY = (*SETTING, "seed")  # one row per run
 # Fields added after the first sweeps, with the value every older row ran under.
-DEFAULTS = {"label": "fixed"}
+DEFAULTS = {"label": "fixed", "task": "uniform", "step": 0}
 # Every row starts with the job's first field, so a cut-off row is a prefix of this or extends it.
 ROW_START = '{"n_qubits": '
 
@@ -49,3 +51,14 @@ def read_rows(path: Path, repair: bool = False) -> list[dict]:
         hint = " (blank line)" if not line.strip() else ""
         raise ValueError(f"{path}:{i + 1} is not a sweep row{hint}")
     return rows
+
+
+def best_lr(path: Path) -> dict[tuple, float]:
+    """From `qflp.train` output: (task, n_qubits, reps, layers) -> the learning rate with the
+    highest mean validation accuracy, the smaller rate on a tie."""
+    scores: dict[tuple, dict[float, list[float]]] = defaultdict(lambda: defaultdict(list))
+    for line in path.read_text().splitlines():
+        r = json.loads(line)
+        if "lr" in r:
+            scores[(r["task"], r["n_qubits"], r["reps"], r["layers"])][r["lr"]].append(r["val_acc"])
+    return {k: max(v, key=lambda lr: (statistics.mean(v[lr]), -lr)) for k, v in scores.items()}
