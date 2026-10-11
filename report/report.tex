@@ -133,9 +133,10 @@ The server is honest but curious. It follows the FL protocol and tries to learn 
 from what it sees. It knows the circuit architecture, the current parameters $\theta$ (it sent
 them), the observable, the loss, and the label $y$. It observes one client's gradient for a single
 training example. This matches Kumar et al.'s worst case for the client~\cite{kumar2023}. The
-client's parameters are untrained, drawn uniformly from $[0, 2\pi)$. Two experiments relax this
-worst case: in RQ3 the client sends the mean gradient over a batch of $B$ examples, and in RQ4 the
-server does not know the labels.
+client's parameters are untrained, drawn uniformly from $[0, 2\pi)$. Three experiments change this
+setting: in RQ3 the client sends the mean gradient over a batch of $B$ examples, in RQ4 the server
+does not know the labels, and in RQ5 the client has trained its parameters on a classification
+task.
 
 \section{Method}
 \subsection{Circuit}
@@ -211,6 +212,24 @@ For RQ2 the client estimates its gradient as a device would. Each $\partial f/\p
 comes from the parameter-shift rule, and each of the $2P+1$ expectation values (including $f$
 itself) is the mean of $S$ sampled measurements. The attacker still matches with its noiseless
 model.
+
+\subsection{Training}
+For RQ5 the client trains its circuit before the attack, on two of the binary classification
+families in Bowles et al.'s benchmark of small quantum models~\cite{bowles2024}, generated with
+their procedure and settings at $N$ features. \emph{Linearly separable} draws 300 points uniformly
+from $[-1,1]^N$ outside a margin of $0.02N$ around the hyperplane normal to $(1,\dots,1)$.
+\emph{Two curves} embeds two 1-d curves into $N$ dimensions with a Fourier series of degree $D$,
+offset by $1/(2D)$, with noise 0.01; we use $D = 2$ and $D = 10$. The degree sets the frequency
+content of the target, which Kumar et al.\ found to change what training does to
+privacy~\cite{kumar2023}. Each dataset is split 80/20 into training and test sets, and each feature
+is scaled to $[0,\pi]$ on the training set.
+
+The client minimizes the mean of $(f - y)^2$ over its training set with full-batch
+Adam~\cite{kingma2015} for 300 steps. The learning rate is the one of $10^{-3}$, $10^{-2}$ and
+$10^{-1}$ with the best mean validation accuracy over three runs on a held-out fifth of the training
+set. Each seed trains from its own random $\theta$, and the attacker sees the gradient of one
+training example, chosen by the seed, at steps 0, 10 and 300. The three attacks on a seed start
+from the same points, and the label is known.
 
 \section{Experiments and Results}
 \subsection{RQ1: Encoding Repetitions Versus Trainable Layers}\label{sec:rq1}
