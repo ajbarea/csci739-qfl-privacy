@@ -19,7 +19,7 @@ literature disagrees: [Kumar et al. (2023)](https://arxiv.org/abs/2309.13002) ar
 encodings make inversion intractable, while
 [Papadopoulos et al. (2025)](https://arxiv.org/abs/2504.12806) reconstruct inputs from
 overparameterized circuits. This project maps where each claim holds, across encoding depth,
-trainable layers, batch size, and simulated IBM Heron device noise.
+trainable layers, batch size, training, and simulated IBM Heron device noise.
 
 Final project for CSCI-739 Quantum Machine Learning, RIT, Fall 2026.
 
@@ -45,6 +45,11 @@ rows in
 - Hiding binary labels lowered recovery for a label-free attack that solves for each sample's
   gradient weight: 14 vs 3 discordant seeds pooled over all settings, exact McNemar p = 0.013,
   almost all at B = 2 and 9 of them on the 8-qubit 1×2 circuit.
+- Training the client's circuit for 300 steps on three benchmark tasks (720 attacks) did not change
+  recovery overall: 21 seeds recovered only before training, 17 only after, exact McNemar
+  p = 0.627. The 1×4 circuits stayed recoverable (at least 16 of 20 seeds at every step), every
+  failure was stuck, and the low-frequency curves task alone moved, toward fewer recoveries
+  (12 vs 0, one task, one example per seed).
 
 ## Run it
 

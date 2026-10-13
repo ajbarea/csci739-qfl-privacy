@@ -7,7 +7,7 @@ extensions, in that order.
 
 1. **Circuit**: encoding reps x trainable layers, 4 then 8 qubits. Enough seeds and restarts to
    report a success rate with a range, not a single draw.
-2. **Client**: batch size, unknown label (optimized jointly with the input), trained vs random θ.
+2. **Client**: batch size, unknown label (optimized jointly with the input), trained vs random θ (all done).
 3. **Device**: shot noise, then Aer noise models from `FakeKingston` / `FakeFez` /
    `FakeMarrakesh`. Does hardware noise act as a free defense?
 4. **Attacker**: restarts budget, and Kumar et al.'s underparameterized attacker model.
@@ -35,3 +35,5 @@ threat models, qualifiers, three different definitions of "overparameterized").
 - 2026-10-09: client axis (#13): batches leak up to N·B/P_eff = 0.67 and never from 1.14 up (all
   ambiguous); hiding binary labels lowers recovery for a label-free attack (pooled McNemar p = 0.013), almost
   all at B = 2.
+- 2026-10-13: trained circuits (#15): 720 attacks at steps 0/10/300 on three benchmark tasks; pooled
+  recovery unchanged (21 vs 17 discordant seeds, McNemar p = 0.627), 1x4 circuits stay recoverable.
