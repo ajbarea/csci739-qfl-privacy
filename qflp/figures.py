@@ -7,7 +7,9 @@ them is typed by hand.
 """
 
 import argparse
+import json
 import math
+import statistics
 from collections import defaultdict
 from pathlib import Path
 
@@ -284,6 +286,25 @@ def batch_table(rows: list[dict], out: Path) -> dict[str, str]:
     }
 
 
+def _discordant(rows: list[dict], setting: tuple, arm: str, a, b) -> dict[tuple, tuple[int, int]]:
+    """Per setting, the seeds recovered only when `arm` is `a` and only when it is `b`, pairing the
+    two runs of each seed."""
+    rec = {
+        (*(r[k] for k in setting), r[arm], r["seed"]): r["best_outcome"] == "recovered"
+        for r in rows
+    }
+    out = {}
+    for key in sorted({k[:-2] for k in rec}):
+        seeds = sorted({k[-1] for k in rec if k[:-2] == key})
+        pairs = [(rec[(*key, a, i)], rec[(*key, b, i)]) for i in seeds]
+        out[key] = (sum(x and not y for x, y in pairs), sum(y and not x for x, y in pairs))
+    return out
+
+
+def _outcome_cell(s: dict) -> str:
+    return f"{s['recovered']}/{s['close']}/{s['ambiguous']}/{s['stuck']}"
+
+
 def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     """LaTeX rows: qubits, reps x layers, batch, recovered/close/ambiguous/stuck with the label
     known and with it unknown on the same clients, and the exact McNemar p-value for recovery.
@@ -294,22 +315,12 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     rows = [r for r in rows if r["shots"] == 0]
     setting = ("n_qubits", "reps", "layers", "batch", "restarts")
     summary = {(*(s[k] for k in setting), s["label"]): s for s in table(rows)}
-    recovered = {
-        (*(r[k] for k in setting), r["label"], r["seed"]): r["best_outcome"] == "recovered"
-        for r in rows
-    }
     lines = []
     pooled: dict[int, list[int]] = defaultdict(lambda: [0, 0])
     top: dict[int, tuple[int, str]] = defaultdict(lambda: (0, ""))
-    for key in sorted({k[:-1] for k in summary}):
+    for key, only in _discordant(rows, setting, "label", "known", "unknown").items():
         n, reps, layers, b, _ = key
-        cells = []
-        for label in ("known", "unknown"):
-            s = summary[(*key, label)]
-            cells.append(f"{s['recovered']}/{s['close']}/{s['ambiguous']}/{s['stuck']}")
-        seeds = sorted({k[-1] for k in recovered if k[:5] == key})
-        pairs = [(recovered[(*key, "known", i)], recovered[(*key, "unknown", i)]) for i in seeds]
-        only = [sum(k and not u for k, u in pairs), sum(u and not k for k, u in pairs)]
+        cells = [_outcome_cell(summary[(*key, label)]) for label in ("known", "unknown")]
         pooled[b][0] += only[0]
         pooled[b][1] += only[1]
         top[b] = max(top[b], (only[0], f"{n}-qubit ${reps}\\times{layers}$"))
@@ -333,6 +344,110 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
         macros[f"LabelPooledP{name}"] = f"{mcnemar_exact(known_only, unknown_only):.3f}"
         macros[f"LabelKnownOnlyTop{name}"] = str(top[b][0])
         macros[f"LabelTopCircuit{name}"] = top[b][1]
+    return macros
+
+
+TASK_LABEL = {"linear": "Linear", "curves2": "Curves, $D{=}2$", "curves10": "Curves, $D{=}10$"}
+TASK_MACRO = {"linear": "Linear", "curves2": "CurvesTwo", "curves10": "CurvesTen"}
+
+
+def _p_relation(p: float) -> str:
+    """A p-value as math text that follows `$p$`: `= 0.627`, or `< 0.001` when it rounds to zero."""
+    return f"= {p:.3f}" if p >= 0.0005 else "< 0.001"
+
+
+def trained_map(rows: list[dict], out: Path) -> None:
+    """Recovered fraction against training step for the one circuit that varies, one line per task
+    and one panel per qubit count."""
+    rows = [r for r in rows if (r["reps"], r["layers"]) == (4, 1)]
+    steps = sorted({r["step"] for r in rows})
+    qubits = sorted({r["n_qubits"] for r in rows})
+    tasks = [t for t in TASK_LABEL if any(r["task"] == t for r in rows)]
+    fig, axes = plt.subplots(1, len(qubits), figsize=(3.5 * len(qubits), 2.9), sharey=True)
+    axes = [axes] if len(qubits) == 1 else list(axes)
+    for ax, n in zip(axes, qubits, strict=True):
+        for i, (task, (colour, marker)) in enumerate(zip(tasks, _styles(len(tasks)), strict=True)):
+            stats = [
+                _recovered_with_interval(
+                    [
+                        r["best_outcome"] == "recovered"
+                        for r in rows
+                        if (r["n_qubits"], r["task"], r["step"]) == (n, task, st)
+                    ]
+                )
+                for st in steps
+            ]
+            ax.errorbar(
+                [j + 0.06 * (i - 1) for j in range(len(steps))],  # separate overlapping bars
+                [f for f, _, _ in stats],
+                yerr=[[d for _, d, _ in stats], [u for _, _, u in stats]],
+                color=colour,
+                marker=marker,
+                ms=6,
+                lw=2,
+                capsize=3,
+                label=TASK_LABEL[task],
+            )
+        ax.set_xticks(range(len(steps)), labels=[str(st) for st in steps])
+        ax.set_xlabel("training steps before the attack")
+        ax.set_title(f"{n} qubits", fontsize=10)
+        ax.set_ylim(-0.03, 1.03)
+        _tidy(ax)
+        ax.legend(frameon=False, fontsize=8, loc="lower left")
+    axes[0].set_ylabel("seeds recovered (fraction)")
+    _save(fig, out)
+
+
+def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[str, str]:
+    """LaTeX rows: task, qubits, reps x layers, median test accuracy of the trained circuit and the
+    logistic-regression test accuracy, then recovered/close/ambiguous/stuck at each training step.
+
+    Returns report macros for the paired test of recovery before and after training, pooled over
+    every setting (the primary test) and per task, and the median gradient norm ratio."""
+    steps = sorted({r["step"] for r in rows})
+    first, last = steps[0], steps[-1]
+    setting = ("task", "n_qubits", "reps", "layers")
+    summary = {(*(s[k] for k in setting), s["step"]): s for s in table(rows)}
+    logistic = {(b["task"], b["n_qubits"]): b["test_acc"] for b in baselines}
+    order = {t: i for i, t in enumerate(TASK_LABEL)}
+    lines = []
+    pooled: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    discordant = _discordant(rows, setting, "step", first, last)
+    for key in sorted(discordant, key=lambda k: (order[k[0]], *k[1:])):
+        task, n, reps, layers = key
+        acc = statistics.median(
+            r["test_acc"] for r in rows if (*(r[k] for k in setting), r["step"]) == (*key, last)
+        )
+        cells = " & ".join(_outcome_cell(summary[(*key, st)]) for st in steps)
+        lines.append(
+            f"{TASK_LABEL[task]} & {n} & ${reps}\\times{layers}$ & "
+            f"{acc:.2f} ({logistic[(task, n)]:.2f}) & {cells} \\\\"
+        )
+        pooled[task][0] += discordant[key][0]
+        pooled[task][1] += discordant[key][1]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines) + "\n")
+    before = sum(a for a, _ in pooled.values())
+    after = sum(b for _, b in pooled.values())
+    by_seed = {(*(r[k] for k in setting), r["seed"], r["step"]): r["grad_norm2"] for r in rows}
+    ratios = [
+        by_seed[(*k[:-1], last)] / by_seed[(*k[:-1], first)] for k in by_seed if k[-1] == first
+    ]
+    shallow = [s["recovered"] for s in summary.values() if s["reps"] == 1]
+    macros = {
+        "TrainedOnlyBeforeAll": str(before),
+        "TrainedOnlyAfterAll": str(after),
+        "TrainedPooledPAll": _p_relation(mcnemar_exact(before, after)),
+        "TrainedFinalStep": str(last),
+        "TrainedGradRatioMedian": f"{statistics.median(ratios):.2f}",
+        "TrainedShallowMinRecovered": str(min(shallow)),
+        "TrainedNotStuck": str(sum(r["best_outcome"] not in ("recovered", "stuck") for r in rows)),
+        "TrainedAttacks": str(len(rows)),
+    }
+    for task, (b, a) in pooled.items():
+        macros[f"TrainedOnlyBefore{TASK_MACRO[task]}"] = str(b)
+        macros[f"TrainedOnlyAfter{TASK_MACRO[task]}"] = str(a)
+        macros[f"TrainedPooledP{TASK_MACRO[task]}"] = _p_relation(mcnemar_exact(b, a))
     return macros
 
 
@@ -373,6 +488,12 @@ def main(argv: list[str] | None = None) -> None:
     rq4 = args.results / "rq4.jsonl"
     if rq4.exists():
         macros.update(label_table(load([rq4]), args.report / "tables" / "rq4.tex"))
+    rq5, training = args.results / "rq5.jsonl", args.results / "rq5-training.jsonl"
+    if rq5.exists():
+        baselines = [r for r in map(json.loads, training.read_text().splitlines()) if "model" in r]
+        trained = load([rq5])
+        trained_map(trained, args.report / "figures" / "trained.pdf")
+        macros.update(trained_table(trained, baselines, args.report / "tables" / "rq5.tex"))
     write_macros(macros, args.report / "tables" / "numbers.tex")
 
 

@@ -10,6 +10,11 @@ are skipped, so an interrupted sweep continues where it stopped.
 Label modes: `fixed`, every y = 1 and the attacker knows it (the first sweeps); `known`, each y
 drawn from {-1, +1} and given to the attacker; `unknown`, the same draw, hidden from the attacker.
 Runs that differ only in label mode share θ, inputs and the attack's starting points.
+
+Tasks: `uniform` draws θ and the inputs at random (RQ1-RQ4). A benchmark task (`qflp.data.TASKS`)
+attacks one training example after `--steps` Adam steps of training from a random θ, with the
+learning rate chosen in `--training` (`qflp.train`). Runs that differ only in step share the
+example, the initial θ and the attack's starting points.
 """
 
 import argparse
@@ -23,7 +28,36 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-from qflp.rows import KEY, read_rows
+from qflp.rows import DEFAULTS, KEY, best_lr, read_rows
+
+# Kept in step with qflp.data.TASKS (a test checks it); importing it here would load scikit-learn.
+TASK_NAMES = ("linear", "curves2", "curves10")
+
+
+def _trained_client(job: dict, c):
+    """θ after `job["step"]` training steps on the job's task, one training example and its label,
+    and the model's accuracy at that θ."""
+    import jax.numpy as jnp
+    import numpy as np
+
+    from qflp.data import TASKS, make_task
+    from qflp.train import DATA_SEED, accuracy, initial_theta, train
+
+    x_tr, x_te, y_tr, y_te = make_task(job["task"], c.n_qubits, DATA_SEED)
+    theta = initial_theta(c, job["seed"])
+    if job["step"]:
+        theta, _ = train(c, theta, x_tr, y_tr, job["lr"], job["step"])
+    # The example depends on the seed and the task, not the circuit or the step.
+    i = int(np.random.default_rng([job["seed"], c.n_qubits, list(TASKS).index(job["task"])])
+            .integers(len(y_tr)))  # fmt: skip
+    f = float(c.expval(jnp.asarray(x_tr[i]), jnp.asarray(theta)))
+    extra = {
+        "example": i,
+        "residual": f - float(y_tr[i]),
+        "train_acc": accuracy(c, theta, x_tr, y_tr),
+        "test_acc": accuracy(c, theta, x_te, y_te),
+    }
+    return theta, x_tr[i : i + 1], y_tr[i : i + 1], extra
 
 
 def run_one(job: dict) -> dict:
@@ -34,18 +68,27 @@ def run_one(job: dict) -> dict:
     from qflp.circuit import Circuit
     from qflp.noise import shot_gradient
 
+    # A job written before a field existed runs as it did then; the job's own fields stay first,
+    # so the row still starts with ROW_START.
+    job = job | {k: v for k, v in DEFAULTS.items() if k not in job}
     c = Circuit(job["n_qubits"], job["reps"], job["layers"])
     # One generator per run, seeded from the run's identity, so any row can be re-run alone.
     identity = [job["seed"], job["n_qubits"], job["reps"], job["layers"], job["batch"]]
     rng = np.random.default_rng(identity)
-    theta = rng.uniform(0, 2 * np.pi, c.n_params)
-    xs = rng.uniform(0, np.pi, (job["batch"], c.n_qubits))
-    if job["label"] == "fixed":
-        ys = np.ones(job["batch"])
+    extra = {}
+    if job["task"] != "uniform":
+        if job["batch"] != 1 or job["shots"] or job["label"] != "known":
+            raise ValueError("benchmark tasks run with batch 1, exact gradients, known label")
+        theta, xs, ys, extra = _trained_client(job, c)
     else:
-        # A child stream, so `known` and `unknown` see the same labels and `fixed` is unchanged.
-        label_rng = np.random.default_rng(np.random.SeedSequence(identity).spawn(1)[0])
-        ys = label_rng.choice([-1.0, 1.0], job["batch"])
+        theta = rng.uniform(0, 2 * np.pi, c.n_params)
+        xs = rng.uniform(0, np.pi, (job["batch"], c.n_qubits))
+        if job["label"] == "fixed":
+            ys = np.ones(job["batch"])
+        else:
+            # A child stream, so `known` and `unknown` see the same labels and `fixed` is unchanged.
+            label_rng = np.random.default_rng(np.random.SeedSequence(identity).spawn(1)[0])
+            ys = label_rng.choice([-1.0, 1.0], job["batch"])
     label_known = job["label"] != "unknown"
     if job["shots"]:
         # Separate stream so the attack's starting points match the exact-gradient run.
@@ -78,6 +121,7 @@ def run_one(job: dict) -> dict:
         "any_recovered": any(r.outcome == "recovered" for r in restarts),
         "restarts_detail": [as_dict(r) for r in restarts],
         "seconds": time.perf_counter() - t0,
+        **extra,
     }
 
 
@@ -113,11 +157,18 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--shots", type=int, nargs="+", default=[0], help="0 = exact gradient")
     ap.add_argument("--batch", type=int, nargs="+", default=[1])
     ap.add_argument("--label", nargs="+", default=["fixed"], choices=["fixed", "known", "unknown"])
+    ap.add_argument("--task", nargs="+", default=["uniform"], choices=["uniform", *TASK_NAMES])
+    ap.add_argument("--steps", type=int, nargs="+", default=[0], help="training steps (tasks)")
+    ap.add_argument("--training", type=Path, help="qflp.train output, for the learning rates")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
     if args.out.suffix != ".jsonl":
         ap.error(f"--out must be a .jsonl results file, got {args.out}")
+    tasks = [t for t in args.task if t != "uniform"]
+    if tasks and args.training is None:
+        ap.error("benchmark tasks need --training for their learning rates")
+    lrs = best_lr(args.training) if tasks else {}
 
     jobs = [
         {
@@ -129,7 +180,12 @@ def main(argv: list[str] | None = None) -> None:
             "batch": b,
             "restarts": args.restarts,
             "label": label,
+            "task": task,
+            "step": step,
+            **({"lr": lrs[(task, n, *map(int, g.split("x")))]} if task != "uniform" else {}),
         }
+        for task in args.task
+        for step in (args.steps if task != "uniform" else [0])
         for n in args.qubits
         for g in args.grid
         for shots in args.shots
