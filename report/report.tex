@@ -45,7 +45,10 @@ repeated one still held on most seeds. In 560 further attacks, batches gave up t
 \BatchLeakMaxRatio{} unknowns per effective parameter and never from \BatchHeldMinRatio{} up, where
 another batch fit the gradient as well as the true one. Against a label-free attack, hiding binary
 labels lowered recovery (paired exact McNemar $p = \LabelPooledPAll$), mostly by leaving
-two-input attacks stuck.
+two-input attacks stuck. Finally, training the client's circuit for 300 steps on three
+benchmark tasks did not change recovery overall (\TrainedOnlyBeforeAll{} seeds recovered only before
+training, \TrainedOnlyAfterAll{} only after, exact McNemar $p \TrainedPooledPAll$); the one task
+that moved it, low-frequency curves, did so toward fewer recoveries.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -213,7 +216,7 @@ comes from the parameter-shift rule, and each of the $2P+1$ expectation values (
 itself) is the mean of $S$ sampled measurements. The attacker still matches with its noiseless
 model.
 
-\subsection{Training}
+\subsection{Training}\label{sec:rq5-training}
 For RQ5 the client trains its circuit before the attack, on two of the binary classification
 families in Bowles et al.'s benchmark of small quantum models~\cite{bowles2024}, generated with
 their procedure and settings at $N$ features. \emph{Linearly separable} draws 300 points uniformly
@@ -438,6 +441,64 @@ Qubits & $r\times\ell$ & $B$ & Known & Unknown & $p$ \\
   than making the input ambiguous.
 \end{itemize}
 
+\subsection{RQ5: Trained Versus Untrained Circuits}\label{sec:rq5}
+We attacked the same clients before and after they trained. Each seed trained a 4- or 8-qubit
+$1\times4$ or $4\times1$ circuit on one of the three tasks of the training subsection and was attacked from the gradient of one fixed training example at steps 0, 10 and
+\TrainedFinalStep{}, with exact gradients, the label known and 10 restarts
+(\TrainedAttacks{} attacks; Table~\ref{tab:rq5}, Fig.~\ref{fig:trained}). Step 0 is the untrained
+circuit of the other experiments, drawn on the benchmark's inputs rather than uniform ones.
+
+\begin{table}[t]
+\caption{RQ5 outcomes over 20 seeds (exact gradients, known label, 10 restarts) as
+recovered/close/ambiguous/stuck at training steps 0, 10 and \TrainedFinalStep. Acc.\ is the median
+test accuracy of the trained circuit, with logistic regression in parentheses.}
+\label{tab:rq5}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+Task & Qubits & $r\times\ell$ & Acc. & Step 0 & Step 10 & Step \TrainedFinalStep \\
+\midrule
+\inputrows{tables/rq5.tex}
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/trained.pdf}
+\caption{Fraction of 20 seeds recovered against training steps for the $4\times1$ circuit, one line
+per task. Bars are 95\% Wilson intervals. The $1\times4$ circuit is in Table~\ref{tab:rq5}.}
+\label{fig:trained}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Training did not change recovery overall.} Pooled over all twelve settings, whose
+  clients are independent, \TrainedOnlyBeforeAll{} seeds were recovered only before training and
+  \TrainedOnlyAfterAll{} only after it, an exact McNemar $p \TrainedPooledPAll$ on the paired seeds.
+  The median squared gradient norm at step \TrainedFinalStep{} was \TrainedGradRatioMedian{} times
+  its step-0 value.
+  \item \textbf{The $1\times4$ circuits stayed recoverable.} Every $1\times4$ setting was
+  recovered on at least \TrainedShallowMinRecovered{} of 20 seeds at every step. The shifts below
+  are all in the $4\times1$ circuits, where the untrained attack already failed on some seeds.
+  \item \textbf{The task changed the direction, and the counts are small.} For the linear task the
+  counts were \TrainedOnlyBeforeLinear{} and \TrainedOnlyAfterLinear{} ($p \TrainedPooledPLinear$);
+  for curves with $D = 10$, \TrainedOnlyBeforeCurvesTen{} and \TrainedOnlyAfterCurvesTen{}
+  ($p \TrainedPooledPCurvesTen$). Both are consistent with noise. For curves with $D = 2$ the
+  counts were \TrainedOnlyBeforeCurvesTwo{} and \TrainedOnlyAfterCurvesTwo{}
+  ($p \TrainedPooledPCurvesTwo$): after training, fewer seeds were recovered, in every setting that
+  changed. This is one task with one training example per seed, and it is the largest of three
+  per-task tests, so we read it as a lead rather than a result.
+  \item \textbf{Every failure was stuck.} No attack was close or ambiguous (\TrainedNotStuck{}
+  attacks). Training changed how often the search converged, not whether the gradient identified the
+  input.
+  \item \textbf{The circuits learned unevenly.} The $D = 10$ circuits stayed near their logistic
+  baseline, which is itself near chance, and on the linear task the 8-qubit $4\times1$ circuit
+  fell furthest below it (Table~\ref{tab:rq5}). Privacy at step \TrainedFinalStep{} therefore
+  describes partly trained circuits on some tasks.
+\end{itemize}
+
 \section{Discussion and Limitations}
 \emph{What the regimes say about each claim.} Encoding repetitions made the attack harder at a fixed
 parameter count, which points the same way as Kumar et al.'s mechanism~\cite{kumar2023}: more
@@ -460,8 +521,10 @@ circuit size, and our two sizes cannot test that.
 \begin{itemize}
   \item All circuits are simulated and at most 8 qubits. The results show where each claim holds
   at this size, not how it scales.
-  \item The client's parameters are untrained. Training changes the gradient's frequency content:
-  Kumar et al.\ found that fitting a low-frequency target reduced privacy~\cite{kumar2023}.
+  \item RQ5 trains with one optimizer on three small tasks, and the trained circuits fit some
+  tasks poorly. The attack sees one training example's gradient per seed. Kumar et al.\ found that
+  fitting a low-frequency target reduced privacy~\cite{kumar2023}; we saw fewer recoveries on the
+  low-frequency task, but the pooled test shows no change, and the setups differ.
   \item A batch's error is that of its worst-matched input. We did not measure how many inputs of
   an ambiguous batch were still recovered.
   \item Labels are binary. An attacker could also try all $2^B$ labelings with the known-label
@@ -494,6 +557,11 @@ there every attack found a different batch that fit the gradient as well as the 
 larger batch left more attacks stuck at 10 restarts. Against a label-free attack, hiding binary
 labels lowered recovery (pooled exact McNemar $p = \LabelPooledPAll$), almost entirely with two
 inputs per update and mostly on one circuit; an attacker that tries every labeling was not tested.
+
+Training the client's circuit did not change recovery overall (pooled exact McNemar
+$p \TrainedPooledPAll$). The $1\times4$ circuits stayed recoverable at every step, every failure was
+stuck, and the only task with a clear shift, low-frequency curves, shifted toward fewer recoveries
+at the $4\times1$ circuits. We read that as a lead for one task and one training example per seed.
 
 Whether a client can still train on gradients as noisy as 100 shots, and whether the attacker's cost
 grows exponentially with circuit size as Kumar et al.\ predict, are the questions this setup leaves
