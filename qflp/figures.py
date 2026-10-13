@@ -351,6 +351,53 @@ TASK_LABEL = {"linear": "Linear", "curves2": "Curves, $D{=}2$", "curves10": "Cur
 TASK_MACRO = {"linear": "Linear", "curves2": "CurvesTwo", "curves10": "CurvesTen"}
 
 
+def _p_relation(p: float) -> str:
+    """A p-value as math text that follows `$p$`: `= 0.627`, or `< 0.001` when it rounds to zero."""
+    return f"= {p:.3f}" if p >= 0.0005 else "< 0.001"
+
+
+def trained_map(rows: list[dict], out: Path) -> None:
+    """Recovered fraction against training step for the one circuit that varies, one line per task
+    and one panel per qubit count."""
+    rows = [r for r in rows if (r["reps"], r["layers"]) == (4, 1)]
+    steps = sorted({r["step"] for r in rows})
+    qubits = sorted({r["n_qubits"] for r in rows})
+    tasks = [t for t in TASK_LABEL if any(r["task"] == t for r in rows)]
+    fig, axes = plt.subplots(1, len(qubits), figsize=(3.5 * len(qubits), 2.9), sharey=True)
+    axes = [axes] if len(qubits) == 1 else list(axes)
+    for ax, n in zip(axes, qubits, strict=True):
+        for i, (task, (colour, marker)) in enumerate(zip(tasks, _styles(len(tasks)), strict=True)):
+            stats = [
+                _recovered_with_interval(
+                    [
+                        r["best_outcome"] == "recovered"
+                        for r in rows
+                        if (r["n_qubits"], r["task"], r["step"]) == (n, task, st)
+                    ]
+                )
+                for st in steps
+            ]
+            ax.errorbar(
+                [j + 0.06 * (i - 1) for j in range(len(steps))],  # separate overlapping bars
+                [f for f, _, _ in stats],
+                yerr=[[d for _, d, _ in stats], [u for _, _, u in stats]],
+                color=colour,
+                marker=marker,
+                ms=6,
+                lw=2,
+                capsize=3,
+                label=TASK_LABEL[task],
+            )
+        ax.set_xticks(range(len(steps)), labels=[str(st) for st in steps])
+        ax.set_xlabel("training steps before the attack")
+        ax.set_title(f"{n} qubits", fontsize=10)
+        ax.set_ylim(-0.03, 1.03)
+        _tidy(ax)
+        ax.legend(frameon=False, fontsize=8, loc="lower left")
+    axes[0].set_ylabel("seeds recovered (fraction)")
+    _save(fig, out)
+
+
 def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[str, str]:
     """LaTeX rows: task, qubits, reps x layers, median test accuracy of the trained circuit and the
     logistic-regression test accuracy, then recovered/close/ambiguous/stuck at each training step.
@@ -386,17 +433,21 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
     ratios = [
         by_seed[(*k[:-1], last)] / by_seed[(*k[:-1], first)] for k in by_seed if k[-1] == first
     ]
+    shallow = [s["recovered"] for s in summary.values() if s["reps"] == 1]
     macros = {
         "TrainedOnlyBeforeAll": str(before),
         "TrainedOnlyAfterAll": str(after),
-        "TrainedPooledPAll": f"{mcnemar_exact(before, after):.3f}",
+        "TrainedPooledPAll": _p_relation(mcnemar_exact(before, after)),
         "TrainedFinalStep": str(last),
         "TrainedGradRatioMedian": f"{statistics.median(ratios):.2f}",
+        "TrainedShallowMinRecovered": str(min(shallow)),
+        "TrainedNotStuck": str(sum(r["best_outcome"] not in ("recovered", "stuck") for r in rows)),
+        "TrainedAttacks": str(len(rows)),
     }
     for task, (b, a) in pooled.items():
         macros[f"TrainedOnlyBefore{TASK_MACRO[task]}"] = str(b)
         macros[f"TrainedOnlyAfter{TASK_MACRO[task]}"] = str(a)
-        macros[f"TrainedPooledP{TASK_MACRO[task]}"] = f"{mcnemar_exact(b, a):.3f}"
+        macros[f"TrainedPooledP{TASK_MACRO[task]}"] = _p_relation(mcnemar_exact(b, a))
     return macros
 
 
@@ -440,7 +491,9 @@ def main(argv: list[str] | None = None) -> None:
     rq5, training = args.results / "rq5.jsonl", args.results / "rq5-training.jsonl"
     if rq5.exists():
         baselines = [r for r in map(json.loads, training.read_text().splitlines()) if "model" in r]
-        macros.update(trained_table(load([rq5]), baselines, args.report / "tables" / "rq5.tex"))
+        trained = load([rq5])
+        trained_map(trained, args.report / "figures" / "trained.pdf")
+        macros.update(trained_table(trained, baselines, args.report / "tables" / "rq5.tex"))
     write_macros(macros, args.report / "tables" / "numbers.tex")
 
 

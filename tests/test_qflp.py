@@ -426,3 +426,15 @@ def test_trained_table_pairs_seeds_across_the_first_and_last_step(tmp_path):
     assert macros["TrainedGradRatioMedian"] == "0.38"
     (line,) = (tmp_path / "rq5.tex").read_text().splitlines()
     assert line.count("/") == 9 and "0.90 (1.00)" in line
+
+
+def test_trained_map_draws_one_panel_per_qubit_count(tmp_path):
+    from qflp.figures import trained_map
+
+    rows = [
+        {"task": t, "n_qubits": n, "reps": 4, "layers": 1, "step": st, "seed": s,
+         "best_outcome": "recovered" if s % 2 else "stuck"}
+        for t in ("linear", "curves2") for n in (4, 8) for st in (0, 300) for s in range(4)
+    ]  # fmt: skip
+    trained_map(rows, tmp_path / "trained.pdf")
+    assert (tmp_path / "trained.pdf").stat().st_size > 0
