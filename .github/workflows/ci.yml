@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+# ruff prints lint and format findings as annotations on the PR's changed lines.
+env:
+  RUFF_OUTPUT_FORMAT: github
+
 concurrency:
   # Per-commit on main so no push loses its verdict; per-ref with cancellation on PRs.
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}

@@ -20,6 +20,7 @@ dev = ["pytest>=8", "ruff>=0.13", "ty>=0.0.1a20"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-ra"
 pythonpath = ["."]
 filterwarnings = ["ignore:'return' in a 'finally' block:SyntaxWarning"]
 
@@ -28,7 +29,7 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "W", "C4", "T20", "PERF", "RUF", "PIE"]
+select = ["E", "F", "I", "UP", "B", "SIM", "W", "C4", "T20", "PERF", "RUF", "PIE", "G", "LOG"]
 
 [tool.ruff.lint.per-file-ignores]
 "spike/*" = ["N803", "N806"]
