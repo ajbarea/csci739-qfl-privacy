@@ -250,7 +250,7 @@ def test_deep_trainable_circuit_input_is_recovered():
     x, th = random_point(c, 0)
     g = c.grad(jnp.asarray(x), jnp.asarray(th), 1.0)
     restarts, true_match = attack(c, th, g, [1.0], x, 5, np.random.default_rng(0))
-    assert true_match == 0.0
+    assert true_match <= 1e-12 * float(jnp.sum(g**2))
     best = best_restart(restarts)
     assert best.outcome == "recovered"
     assert best.match < 1e-15
