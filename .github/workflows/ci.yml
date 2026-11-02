@@ -21,6 +21,7 @@ concurrency:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -34,6 +35,8 @@ jobs:
           enable-cache: true
           # The default key records the runner's system Python, identical across legs.
           cache-suffix: py${{ matrix.python-version }}
+          prune-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
