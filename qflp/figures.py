@@ -19,7 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from qflp import macros as prose
-from qflp.summarize import CLOSE_RAD, best_outcome, load, outcomes, table
+from qflp.summarize import CLOSE_RAD, load, table
 
 # Okabe-Ito, checked for colour-vision deficiency; markers repeat the identity for print.
 STYLE = [("#0072B2", "o"), ("#D55E00", "s"), ("#009E73", "^")]
@@ -181,39 +181,34 @@ def shots_table(rows: list[dict], out: Path) -> None:
     out.write_text("\n".join(lines) + "\n")
 
 
-def budget_table(rows: list[dict], out: Path, budgets: tuple[int, ...] = (10, 50)) -> None:
+def budget_table(rows: list[dict], out: Path, budgets: tuple[int, int]) -> None:
     """LaTeX rows: qubits, reps x layers, effective params, seeds recovered within each restart
     budget, and the fraction of all restarts that recover the input."""
-    groups: dict[tuple, list[dict]] = defaultdict(list)
-    for r in rows:
-        if r["shots"] == 0 and r["batch"] == 1:
-            groups[(r["n_qubits"], r["reps"], r["layers"])].append(r)
+    small, large = budgets
+    rows = [r for r in rows if r["shots"] == 0 and r["batch"] == 1]
+    if min(r["restarts"] for r in rows) < large:
+        raise ValueError(f"a budget run has fewer restarts than the {large} budget")
     lines = []
-    for (n, reps, layers), rs in sorted(groups.items()):
-        if min(r["restarts"] for r in rs) < max(budgets):
-            raise ValueError(f"{n}q {reps}x{layers}: fewer restarts than the {max(budgets)} budget")
-        within = [sum(best_outcome(r, b) == "recovered" for r in rs) for b in budgets]
-        per = [o == "recovered" for r in rs for o in outcomes(r)]
-        cells = " & ".join(f"{w}/{len(rs)}" for w in within)
+    for (n, reps, layers), s in prose.budget_stats(rows, small).items():
         lines.append(
-            f"{n} & ${reps}\\times{layers}$ & {rs[0]['n_effective']} & {cells} & "
-            f"{100 * sum(per) / len(per):.1f}\\% \\\\"
+            f"{n} & ${reps}\\times{layers}$ & {s['n_effective']} & {s['before']}/{s['seeds']} & "
+            f"{s['after']}/{s['seeds']} & {100 * s['rate']:.1f}\\% \\\\"
         )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n")
 
 
-def _exact_fixed(rows: list[dict], restarts: int = 10) -> list[dict]:
+def _exact_fixed(rows: list[dict], restarts: int) -> list[dict]:
     return [
         r for r in rows if r["shots"] == 0 and r["label"] == "fixed" and r["restarts"] == restarts
     ]
 
 
-def batch_map(rows: list[dict], out: Path) -> None:
+def batch_map(rows: list[dict], out: Path, restarts: int) -> None:
     """Recovered fraction against unknowns per effective parameter (N·B / P_eff), one line per
     circuit, so circuits of different size share the point where the inputs outnumber the
     equations."""
-    rows = _exact_fixed(rows)
+    rows = _exact_fixed(rows, restarts)
     qubits = sorted({r["n_qubits"] for r in rows})
     fig, axes = plt.subplots(1, len(qubits), figsize=(3.5 * len(qubits), 2.9), sharey=True)
     axes = [axes] if len(qubits) == 1 else list(axes)
@@ -255,14 +250,14 @@ def batch_map(rows: list[dict], out: Path) -> None:
     _save(fig, out)
 
 
-def batch_table(rows: list[dict], out: Path) -> dict[str, str]:
+def batch_table(rows: list[dict], out: Path, restarts: int) -> dict[str, str]:
     """LaTeX rows: qubits, reps x layers, effective params, batch, unknowns, four outcome counts,
     and the median error of the worst-matched input.
 
     Returns report macros: the largest unknowns-per-parameter ratio with any recovery, the
     smallest with none, the fewest seeds recovered below a ratio of 1, and the range of median
     errors among settings past it."""
-    summary = table(_exact_fixed(rows))
+    summary = table(_exact_fixed(rows, restarts))
     ratio = {id(s): s["n_qubits"] * s["batch"] / s["n_effective"] for s in summary}
     leaked = [s for s in summary if s["recovered"] > 0]
     held = [s for s in summary if s["recovered"] == 0]
@@ -294,8 +289,8 @@ def batch_table(rows: list[dict], out: Path) -> dict[str, str]:
         "BatchLeakMaxRatio": f"{max(ratio[id(s)] for s in leaked):.2f}",
         "BatchHeldMinRatio": f"{min(ratio[id(s)] for s in held):.2f}",
         "BatchFewestRecoveredBelow": str(min(s["recovered"] for s in summary if ratio[id(s)] < 1)),
-        "BatchAmbigErrLow": f"{min(errors):.1f}",
-        "BatchAmbigErrHigh": f"{max(errors):.1f}",
+        "BatchAmbigErrLow": f"{min(errors):.2f}",
+        "BatchAmbigErrHigh": f"{max(errors):.2f}",
         "BatchStuckQubits": str(shallow["n_qubits"]),
         "BatchStuckShallowCircuit": f"${shallow['reps']}\\times{shallow['layers']}$",
         "BatchStuckShallow": str(shallow["stuck"]),
@@ -338,6 +333,7 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     summary = {(*(s[k] for k in setting), s["label"]): s for s in table(rows)}
     lines = []
     pooled: dict[int, list[int]] = defaultdict(lambda: [0, 0])
+    p_setting = []
     top: dict[int, tuple[int, str, tuple]] = defaultdict(lambda: (0, "", ()))
     for key, only in _discordant(rows, setting, "label", "known", "unknown").items():
         n, reps, layers, b, _ = key
@@ -345,6 +341,7 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
         pooled[b][0] += only[0]
         pooled[b][1] += only[1]
         top[b] = max(top[b], (only[0], f"{n}-qubit ${reps}\\times{layers}$", key))
+        p_setting.append(mcnemar_exact(*only))
         lines.append(
             f"{n} & ${reps}\\times{layers}$ & {b} & {cells[0]} & {cells[1]} & "
             f"{mcnemar_exact(*only):.3f} \\\\"
@@ -356,15 +353,24 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     macros = {
         "LabelKnownOnlyAll": str(known_all),
         "LabelUnknownOnlyAll": str(unknown_all),
-        "LabelPooledPAll": f"{mcnemar_exact(known_all, unknown_all):.3f}",
+        "LabelPooledPAll": _p_relation(mcnemar_exact(known_all, unknown_all)),
     }
     for b, (known_only, unknown_only) in sorted(pooled.items()):
         name = _batch_name(b)
         macros[f"LabelKnownOnly{name}"] = str(known_only)
         macros[f"LabelUnknownOnly{name}"] = str(unknown_only)
-        macros[f"LabelPooledP{name}"] = f"{mcnemar_exact(known_only, unknown_only):.3f}"
+        macros[f"LabelPooledP{name}"] = _p_relation(mcnemar_exact(known_only, unknown_only))
     b = max(pooled, key=lambda b: pooled[b][0])
     known_only, circuit, key = top[b]
+    unknown = summary[(*key, "unknown")]
+    if b != max(pooled) or 2 * known_only <= pooled[b][0]:
+        raise prose.ClaimError(
+            "the label difference sits at the largest batch, mostly on one circuit"
+        )
+    if unknown["ambiguous"] or unknown["close"]:
+        raise prose.ClaimError("the label-free failures on that circuit were stuck, not ambiguous")
+    if min(p_setting) < 0.05:
+        raise prose.ClaimError("no single setting's difference is significant")
     macros |= {
         "LabelTopBatch": str(b),
         "LabelKnownOnlyTop": str(known_only),
@@ -377,13 +383,16 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
 
 TASK_LABEL = {"linear": "Linear", "curves2": "Curves, $D{=}2$", "curves10": "Curves, $D{=}10$"}
 TASK_MACRO = {"linear": "Linear", "curves2": "CurvesTwo", "curves10": "CurvesTen"}
-# The task the report discusses as the lead: the one whose recovery moved most with training.
+# The task the report discusses as the lead: the one with the smallest per-task p.
 LEAD_TASK = "curves2"
 
 
 def _p_relation(p: float) -> str:
-    """A p-value as math text that follows `$p$`: `= 0.627`, or `< 0.001` when it rounds to zero."""
-    return f"= {p:.3f}" if p >= 0.0005 else "< 0.001"
+    """A p-value as math text that follows `$p$`: `= 0.627`, two significant figures below 0.01
+    (`= 0.0015`), or `< 0.001` below 0.0005."""
+    if p < 0.0005:
+        return "< 0.001"
+    return f"= {p:.3f}" if p >= 0.01 else f"= {p:.2g}"
 
 
 def trained_map(rows: list[dict], out: Path) -> None:
@@ -463,15 +472,17 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
     ratios = [
         by_seed[(*k[:-1], last)] / by_seed[(*k[:-1], first)] for k in by_seed if k[-1] == first
     ]
-    shallow = [s["recovered"] for s in summary.values() if s["reps"] == 1]
+    shallow = {k: s["recovered"] for k, s in summary.items() if s["reps"] == 1}
+    lowest = min(shallow, key=lambda k: shallow[k])
+    if any(r["best_outcome"] not in ("recovered", "stuck") for r in rows):
+        raise prose.ClaimError("every trained attack ended recovered or stuck")
     macros = {
         "TrainedOnlyBeforeAll": str(before),
         "TrainedOnlyAfterAll": str(after),
         "TrainedPooledPAll": _p_relation(mcnemar_exact(before, after)),
         "TrainedFinalStep": str(last),
         "TrainedGradRatioMedian": f"{statistics.median(ratios):.2f}",
-        "TrainedShallowMinRecovered": str(min(shallow)),
-        "TrainedNotStuck": str(sum(r["best_outcome"] not in ("recovered", "stuck") for r in rows)),
+        "TrainedShallowMinRecovered": str(shallow[lowest]),
         "TrainedAttacks": str(len(rows)),
         "TrainedSteps": prose._and(str(st) for st in steps),
         "TrainedTasks": str(len(pooled)),
@@ -488,6 +499,8 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
             raise prose.ClaimError(f"{LEAD_TASK} has the smallest per-task p")
         p_lead = min(1.0, len(p_task) * p_task[LEAD_TASK])
         macros["TrainedLeadBonferroni"] = _p_relation(p_lead)
+        if lowest[0] != LEAD_TASK:
+            raise prose.ClaimError(f"the fewest 1 x l recoveries are on {LEAD_TASK}")
     return macros
 
 
@@ -517,12 +530,12 @@ def main(argv: list[str] | None = None) -> None:
         "budget": budget_rows,
         "rq3": load([args.results / "rq3.jsonl"]),
         "rq4": load([args.results / "rq4.jsonl"]),
+        "rq5": load([args.results / "rq5.jsonl"]),
     }
     privacy_map(rq1, args.report / "figures" / "privacy-map.pdf")
     outcome_table(rq1, args.report / "tables" / "rq1.tex")
     shot_noise(rq2, args.report / "figures" / "shot-noise.pdf")
     shots_table(rq2, args.report / "tables" / "rq2.tex")
-    budget_table(budget_rows, args.report / "tables" / "budget.tex")
     macros: dict[str, str] = {
         **prose.design_macros(),
         **prose.count_macros(files),
@@ -532,15 +545,21 @@ def main(argv: list[str] | None = None) -> None:
         **prose.spike_macros(args.spike),
         **prose.compile_macros(args.results / "compile-time.jsonl"),
     }
+    restarts = int(macros["Restarts"])
+    budget_table(
+        budget_rows,
+        args.report / "tables" / "budget.tex",
+        (restarts, int(macros["BudgetRestarts"])),
+    )
     # Batch 1 of the same circuits is already in RQ1.
     circuits = {(r["n_qubits"], r["reps"], r["layers"]) for r in files["rq3"]}
     batch = [r for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) in circuits] + files["rq3"]
-    batch_map(batch, args.report / "figures" / "batch.pdf")
-    macros.update(batch_table(batch, args.report / "tables" / "rq3.tex"))
+    batch_map(batch, args.report / "figures" / "batch.pdf", restarts)
+    macros.update(batch_table(batch, args.report / "tables" / "rq3.tex", restarts))
     macros.update(label_table(files["rq4"], args.report / "tables" / "rq4.tex"))
     training = args.results / "rq5-training.jsonl"
     baselines = [r for r in map(json.loads, training.read_text().splitlines()) if "model" in r]
-    trained = load([args.results / "rq5.jsonl"])
+    trained = files["rq5"]
     trained_map(trained, args.report / "figures" / "trained.pdf")
     macros.update(trained_table(trained, baselines, args.report / "tables" / "rq5.tex"))
     write_macros(macros, args.report / "tables" / "numbers.tex")

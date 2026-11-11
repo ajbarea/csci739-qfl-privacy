@@ -1,8 +1,7 @@
-\newcommand{\BatchAmbigErrHigh}{2.4}
-\newcommand{\BatchAmbigErrLow}{1.1}
+\newcommand{\BatchAmbigErrHigh}{2.45}
+\newcommand{\BatchAmbigErrLow}{1.11}
 \newcommand{\BatchFewestRecoveredBelow}{12}
 \newcommand{\BatchHeldMinRatio}{1.14}
-\newcommand{\BatchLabelAttacks}{560}
 \newcommand{\BatchLeakMaxRatio}{0.67}
 \newcommand{\BatchStuckDeep}{8}
 \newcommand{\BatchStuckDeepAt}{4}
@@ -15,15 +14,15 @@
 \newcommand{\BenchNoise}{0.01}
 \newcommand{\BenchSamples}{300}
 \newcommand{\BudgetCircuits}{4}
-\newcommand{\BudgetEasiestCircuit}{$2\times1$}
-\newcommand{\BudgetEasiestPerSuccess}{13}
-\newcommand{\BudgetEasiestRate}{7.9}
+\newcommand{\BudgetClientSeconds}{44}
 \newcommand{\BudgetHardestCircuit}{$8\times1$}
 \newcommand{\BudgetHardestHeld}{15}
-\newcommand{\BudgetHardestPerSuccess}{91}
+\newcommand{\BudgetHardestHitSeeds}{5}
+\newcommand{\BudgetHardestHits}{11}
+\newcommand{\BudgetHardestNoHit}{15}
 \newcommand{\BudgetHardestRate}{1.1}
 \newcommand{\BudgetHardestRecovered}{5}
-\newcommand{\BudgetHardestSeconds}{79}
+\newcommand{\BudgetHardestTries}{1000}
 \newcommand{\BudgetMaxRecoveredErr}{\ensuremath{2\times10^{-6}}}
 \newcommand{\BudgetOthersCount}{3}
 \newcommand{\BudgetOthersMax}{18}
@@ -41,9 +40,10 @@
 \newcommand{\LabelKnownOnlyOne}{1}
 \newcommand{\LabelKnownOnlyTop}{9}
 \newcommand{\LabelKnownOnlyTwo}{13}
-\newcommand{\LabelPooledPAll}{0.013}
-\newcommand{\LabelPooledPOne}{1.000}
-\newcommand{\LabelPooledPTwo}{0.021}
+\newcommand{\LabelPooledPAll}{= 0.013}
+\newcommand{\LabelPooledPOne}{= 1.000}
+\newcommand{\LabelPooledPTwo}{= 0.021}
+\newcommand{\LabelSettings}{8}
 \newcommand{\LabelTopBatch}{2}
 \newcommand{\LabelTopCircuit}{8-qubit $1\times2$}
 \newcommand{\LabelTopStuckKnown}{7}
@@ -67,9 +67,12 @@
 \newcommand{\Seeds}{20}
 \newcommand{\ShallowMaxParams}{120}
 \newcommand{\ShallowMinParams}{12}
+\newcommand{\ShotDeepStillStuck}{10}
 \newcommand{\ShotDeepStuckFrom}{\ensuremath{10^{4}}}
 \newcommand{\ShotDeepStuckMax}{12}
 \newcommand{\ShotDeepStuckMin}{11}
+\newcommand{\ShotLowAmbigLargeMax}{20}
+\newcommand{\ShotLowAmbigLargeMin}{14}
 \newcommand{\ShotLowErrLargeMax}{2.350}
 \newcommand{\ShotLowErrLargeMin}{1.007}
 \newcommand{\ShotLowErrSmallMax}{0.192}
@@ -77,9 +80,13 @@
 \newcommand{\ShotLowWithinLargeMax}{1}
 \newcommand{\ShotLowWithinSmallMax}{17}
 \newcommand{\ShotLowWithinSmallMin}{10}
+\newcommand{\ShotNoiseLarge}{0.16}
+\newcommand{\ShotNoiseSmall}{0.14}
 \newcommand{\ShotParamsLarge}{56}
 \newcommand{\ShotParamsSmall}{28}
 \newcommand{\ShotPrivateAtSecond}{$1\times4$ and $4\times1$}
+\newcommand{\ShotSignalLarge}{0.14}
+\newcommand{\ShotSignalSmall}{0.72}
 \newcommand{\ShotSlopeCircuits}{5}
 \newcommand{\ShotSlopeMax}{\ensuremath{-0.49}}
 \newcommand{\ShotSlopeMin}{\ensuremath{-0.54}}
@@ -104,8 +111,7 @@
 \newcommand{\TrainedAttacks}{720}
 \newcommand{\TrainedFinalStep}{300}
 \newcommand{\TrainedGradRatioMedian}{1.89}
-\newcommand{\TrainedLeadBonferroni}{= 0.001}
-\newcommand{\TrainedNotStuck}{0}
+\newcommand{\TrainedLeadBonferroni}{= 0.0015}
 \newcommand{\TrainedOnlyAfterAll}{17}
 \newcommand{\TrainedOnlyAfterCurvesTen}{10}
 \newcommand{\TrainedOnlyAfterCurvesTwo}{0}
@@ -118,6 +124,7 @@
 \newcommand{\TrainedPooledPCurvesTen}{= 0.180}
 \newcommand{\TrainedPooledPCurvesTwo}{< 0.001}
 \newcommand{\TrainedPooledPLinear}{= 0.774}
+\newcommand{\TrainedSettings}{12}
 \newcommand{\TrainedShallowMinRecovered}{16}
 \newcommand{\TrainedSteps}{0, 10 and 300}
 \newcommand{\TrainedTasks}{3}

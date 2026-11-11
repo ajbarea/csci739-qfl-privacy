@@ -43,10 +43,15 @@ def _pow10(x: float) -> str:
     return f"\\ensuremath{{10^{{{e}}}}}"
 
 
+def _ceil(x: float, digits: int) -> str:
+    """x rounded up at `digits` decimals: an upper bound that still holds for x."""
+    return f"{math.ceil(round(x * 10**digits, 9)) / 10**digits:.{digits}f}"
+
+
 def _upper_sci(x: float) -> str:
     """x rounded up to one significant figure, as m x 10^e: a bound that holds for x."""
     e = math.floor(math.log10(x))
-    m = math.ceil(x / 10.0**e)
+    m = math.ceil(round(x / 10.0**e, 9))
     if m == 10:
         m, e = 1, e + 1
     return f"\\ensuremath{{{m}\\times10^{{{e}}}}}" if m > 1 else f"\\ensuremath{{10^{{{e}}}}}"
@@ -87,18 +92,25 @@ def design_macros() -> dict[str, str]:
     }
 
 
+# The keys that tell one paired-test setting from another (the arm under test excluded).
+LABEL_SETTING = ("n_qubits", "reps", "layers", "batch")
+TRAINED_SETTING = ("task", "n_qubits", "reps", "layers")
+
+
 def count_macros(files: dict[str, list[dict]]) -> dict[str, str]:
-    """Seeds per setting and restarts per attack, checked to be the same everywhere they are
-    quoted, and the number of attacks in each experiment."""
+    """Seeds per setting and restarts per attack, checked to be the same in every experiment that
+    quotes them, and the number of attacks and settings in each experiment."""
     seeds = _one((s["seeds"] for rows in files.values() for s in table(rows)), "seed count")
+    restarts = (r["restarts"] for k, rows in files.items() if k != "budget" for r in rows)
     return {
         "Seeds": str(seeds),
-        "Restarts": str(_one((r["restarts"] for r in files["rq1"]), "RQ1 restart count")),
+        "Restarts": str(_one(restarts, "restart count outside the budget experiment")),
         "BudgetRestarts": str(_one((r["restarts"] for r in files["budget"]), "budget restarts")),
         "RqOneAttacks": str(len(files["rq1"])),
         "RqOneShapes": str(len(table(files["rq1"]))),
         "RqTwoAttacks": str(len(files["rq2"])),
-        "BatchLabelAttacks": str(len(files["rq3"]) + len(files["rq4"])),
+        "LabelSettings": str(len({tuple(r[k] for k in LABEL_SETTING) for r in files["rq4"]})),
+        "TrainedSettings": str(len({tuple(r[k] for k in TRAINED_SETTING) for r in files["rq5"]})),
     }
 
 
@@ -127,8 +139,9 @@ def rq1_macros(rows: list[dict]) -> dict[str, str]:
         if r["reps"] == r["layers"] == 1 and r["best_outcome"] == "close"
     ]
     _require(by[(large, 1, 1)]["close"] == 0, f"no close r = l = 1 seed at {large} qubits")
+    _require(bool(close), f"some r = l = 1 seed at {small} qubits was close")
     out["SquareCloseSmall"] = str(by[(small, 1, 1)]["close"])
-    out["SquareCloseMaxErr"] = f"{max(close):.2f}"
+    out["SquareCloseMaxErr"] = _ceil(max(close), 2)
 
     # One encoding layer, two or more trainable layers.
     shallow = [s for (_, reps, layers), s in by.items() if reps == 1 and layers >= 2]
@@ -158,8 +171,8 @@ def rq1_macros(rows: list[dict]) -> dict[str, str]:
         "every r >= 2 shape was stuck on more seeds at the larger size",
     )
     _require(
-        all(s["ambiguous"] == 0 for (_, reps, _), s in by.items() if reps >= 2),
-        "no attack with r >= 2 ended ambiguous",
+        all(s["ambiguous"] == s["close"] == 0 for (_, reps, _), s in by.items() if reps >= 2),
+        "no attack with r >= 2 ended ambiguous or close: every failure was stuck",
     )
     out["StuckFourOneSmall"] = str(by[(small, 4, 1)]["stuck"])
     out["StuckFourOneLarge"] = str(by[(large, 4, 1)]["stuck"])
@@ -184,6 +197,8 @@ def rq2_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
     shots = sorted({k[3] for k in by})
     circuits = sorted({k[:3] for k in by})
     low, second = shots[0], shots[1]
+    # The prose names these shot counts.
+    _require((low, second) == (100, 1000), "the two lowest shot counts are 100 and 1000")
     out: dict[str, str] = {}
     for n, name in ((small, "Small"), (large, "Large")):
         out[f"ShotParams{name}"] = str(
@@ -197,6 +212,16 @@ def rq2_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
     out["ShotLowErrLargeMin"] = f"{min(s['median_error'] for s in at_low[large]):.3f}"
     out["ShotLowErrLargeMax"] = f"{max(s['median_error'] for s in at_low[large]):.3f}"
     out["ShotLowWithinLargeMax"] = str(max(s["within_close"] for s in at_low[large]))
+    out["ShotLowAmbigLargeMin"] = str(min(s["ambiguous"] for s in at_low[large]))
+    out["ShotLowAmbigLargeMax"] = str(max(s["ambiguous"] for s in at_low[large]))
+    # Signal against noise: the exact gradient's squared norm (RQ1 runs of the same circuits) and
+    # the matching loss of the true input under the noisy gradient, which is the noise's power.
+    for n, name in ((small, "Small"), (large, "Large")):
+        shapes = [c for c in circuits if c[0] == n]
+        signal = [r["grad_norm2"] for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) in shapes]
+        noise = [r["true_match"] for r in rows if r["n_qubits"] == n and r["shots"] == low]
+        out[f"ShotSignal{name}"] = f"{statistics.median(signal):.2f}"
+        out[f"ShotNoise{name}"] = f"{statistics.median(noise):.2f}"
     _require(
         all(2 * s["within_close"] < seeds for s in at_low[large]),
         f"at {large} qubits and {low} shots every circuit was private on most seeds",
@@ -217,12 +242,14 @@ def rq2_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
         pts = [(s, e) for s, e in pts if e <= attack.CLOSE_RAD]
         if len(pts) >= 3:
             slopes.append(_slope(pts))
+    _require(bool(slopes), "some circuit came within CLOSE_RAD at three or more shot counts")
     out["ShotSlopeCircuits"] = str(len(slopes))
     out["ShotSlopeMin"] = f"\\ensuremath{{{min(slopes):.2f}}}"
     out["ShotSlopeMax"] = f"\\ensuremath{{{max(slopes):.2f}}}"
 
     wide = (large, 1, 4)
     full = [s for s in shots if by[(*wide, s)]["within_close"] == seeds]
+    _require(bool(full), f"the {large}-qubit 1 x 4 circuit came within CLOSE_RAD on every seed")
     out["ShotWideAllAt"] = _pow10(min(full))
 
     deep = (large, 4, 1)
@@ -231,7 +258,10 @@ def rq2_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
         f"the {large}-qubit 4 x 1 circuit stayed private on most seeds at every shot count",
     )
     clean = [s for s in shots if by[(*deep, s)]["ambiguous"] == 0]
-    _require(clean == shots[shots.index(clean[0]) :], "no ambiguous seed from that shot count up")
+    _require(
+        bool(clean) and clean == shots[shots.index(clean[0]) :],
+        "no ambiguous seed from that shot count up",
+    )
     stuck = [by[(*deep, s)]["stuck"] for s in clean]
     out["ShotDeepStuckFrom"] = _pow10(clean[0])
     out["ShotDeepStuckMin"] = str(min(stuck))
@@ -239,6 +269,12 @@ def rq2_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
 
     def stuck_seeds(rs, shot):
         return {r["seed"] for r in rs if r["shots"] == shot and r["best_outcome"] == "stuck"}
+
+    deep_exact = stuck_seeds([r for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) == deep], 0)
+    deep_noisy = [r for r in rows if (r["n_qubits"], r["reps"], r["layers"]) == deep]
+    out["ShotDeepStillStuck"] = str(
+        min(len(deep_exact & stuck_seeds(deep_noisy, s)) for s in clean)
+    )
 
     same = [r for r in rows if (r["n_qubits"], r["reps"], r["layers"]) == (small, 4, 1)]
     exact = [r for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) == (small, 4, 1)]
@@ -249,37 +285,59 @@ def rq2_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
     return out
 
 
-def budget_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
-    """The restart budget: the RQ1 circuits with the most stuck seeds, rerun with more restarts."""
-    small_budget = _one((r["restarts"] for r in rq1), "RQ1 restart count")
+def budget_stats(rows: list[dict], small_budget: int) -> dict[tuple, dict]:
+    """Per budget circuit: seeds recovered within the first `small_budget` restarts and within all
+    of them, and the fraction of all restarts that recovered the input."""
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for r in rows:
         groups[(r["n_qubits"], r["reps"], r["layers"])].append(r)
-    base = {(r["n_qubits"], r["reps"], r["layers"], r["seed"]): r for r in rq1}
-    for key, rs in groups.items():
-        for r in rs:
-            first = [d["error"] for d in r["restarts_detail"][:small_budget]]
-            again = [d["error"] for d in base[(*key, r["seed"])]["restarts_detail"]]
-            _require(
-                all(
-                    math.isclose(a, b, rel_tol=1e-6, abs_tol=1e-9)
-                    for a, b in zip(first, again, strict=True)
-                ),
-                "the first restarts of each budget run repeat the RQ1 attack",
-            )
-    seeds = _one((len(rs) for rs in groups.values()), "seed count")
     stats = {}
-    for key, rs in groups.items():
+    for key, rs in sorted(groups.items()):
         per = [o == "recovered" for r in rs for o in outcomes(r)]
         stats[key] = {
+            "seeds": len(rs),
+            "n_effective": rs[0]["n_effective"],
             "before": sum(best_outcome(r, small_budget) == "recovered" for r in rs),
             "after": sum(r["best_outcome"] == "recovered" for r in rs),
             "rate": sum(per) / len(per),
         }
+    return stats
+
+
+def budget_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
+    """The restart budget: the RQ1 circuits with the most stuck seeds, rerun with more restarts."""
+    small_budget = _one((r["restarts"] for r in rq1), "RQ1 restart count")
+    base = {(r["n_qubits"], r["reps"], r["layers"], r["seed"]): r for r in rq1}
+    for r in rows:
+        old = base[(r["n_qubits"], r["reps"], r["layers"], r["seed"])]
+        first = r["restarts_detail"][:small_budget]
+        _require(
+            best_outcome(r, small_budget) == old["best_outcome"]
+            and all(
+                math.isclose(a[f], b[f], rel_tol=1e-6, abs_tol=1e-9)
+                for a, b in zip(first, old["restarts_detail"], strict=True)
+                for f in ("error", "match")
+            ),
+            "the first restarts of each budget run repeat the RQ1 attack",
+        )
+    stats = budget_stats(rows, small_budget)
+    seeds = _one((s["seeds"] for s in stats.values()), "seed count")
+    large = _one((k[0] for k in stats), "budget qubit count")
+    rq1_by = {(s["n_qubits"], s["reps"], s["layers"]): s for s in table(rq1)}
+    most_stuck = sorted(
+        (k for k in rq1_by if k[0] == large), key=lambda k: rq1_by[k]["stuck"], reverse=True
+    )
+    cut = rq1_by[most_stuck[len(stats) - 1]]["stuck"]
+    _require(
+        set(stats) == set(most_stuck[: len(stats)])
+        and rq1_by[most_stuck[len(stats)]]["stuck"] < cut,
+        "the budget circuits are the RQ1 circuits with the most stuck seeds",
+    )
     hardest = min(stats, key=lambda k: stats[k]["rate"])
     rate = {k: s["rate"] for k, s in stats.items()}
     _require(
-        rate[(8, 2, 1)] > rate[(8, 4, 1)] > rate[(8, 8, 1)] and rate[(8, 4, 2)] > rate[(8, 8, 1)],
+        rate[(large, 2, 1)] > rate[(large, 4, 1)] > rate[(large, 8, 1)]
+        and rate[(large, 4, 2)] > rate[(large, 8, 1)],
         "more repetitions gave a lower per-restart rate along l = 1 and at 120 parameters",
     )
     rq1_recovered: dict[tuple, int] = defaultdict(int)
@@ -295,17 +353,16 @@ def budget_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
         held == sorted([k for k in rq1_recovered if k[1] == k[2] == 1] + [hardest]),
         "only r = l = 1 and the hardest budget circuit kept the input on most seeds",
     )
-    easiest = max(stats, key=lambda k: stats[k]["rate"])
     others = sorted(k for k in stats if k != hardest)
     _require(2 * stats[hardest]["after"] < seeds, "the hardest circuit held on most seeds")
-    _require(all(2 * stats[k]["after"] > seeds for k in others), "the others leaked on most")
     seconds = statistics.median(r["seconds"] / r["restarts"] for r in rows)
-    per_success = round(1 / stats[hardest]["rate"])
-    errors = [
-        min(r["restarts_detail"], key=lambda d: d["match"])["error"]
+    budget = _one((r["restarts"] for r in rows), "budget restart count")
+    hits = [
+        sum(o == "recovered" for o in outcomes(r))
         for r in rows
-        if r["best_outcome"] == "recovered"
+        if (r["n_qubits"], r["reps"], r["layers"]) == hardest
     ]
+    errors = [r["best_error"] for r in rows if r["best_outcome"] == "recovered"]
     return {
         "BudgetCircuits": str(len(stats)),
         "BudgetOthersCount": str(len(others)),
@@ -318,12 +375,12 @@ def budget_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
         "BudgetHardestRecovered": str(stats[hardest]["after"]),
         "BudgetHardestHeld": str(seeds - stats[hardest]["after"]),
         "BudgetHardestRate": f"{100 * stats[hardest]['rate']:.1f}",
-        "BudgetHardestPerSuccess": str(per_success),
-        "BudgetEasiestCircuit": _circuit(easiest[1], easiest[2]),
-        "BudgetEasiestRate": f"{100 * stats[easiest]['rate']:.1f}",
-        "BudgetEasiestPerSuccess": str(round(1 / stats[easiest]["rate"])),
+        "BudgetHardestHits": str(sum(hits)),
+        "BudgetHardestTries": str(len(hits) * budget),
+        "BudgetHardestHitSeeds": str(sum(h > 0 for h in hits)),
+        "BudgetHardestNoHit": str(sum(h == 0 for h in hits)),
         "BudgetSecondsPerRestart": f"{seconds:.2f}",
-        "BudgetHardestSeconds": str(round(per_success * seconds)),
+        "BudgetClientSeconds": str(round(budget * seconds)),
         "BudgetMaxRecoveredErr": _upper_sci(max(errors)),
     }
 
@@ -352,6 +409,6 @@ def compile_macros(path: Path) -> dict[str, str]:
     return {
         "CompileQubits": str(_one((r["n_qubits"] for r in rows), "qubit count")),
         "CompileShapes": _and(_circuit(r["reps"], r["layers"]) for r in rows),
-        "CompileMaxSeconds": f"{max(r['first_call_s'] for r in rows):.1f}",
+        "CompileMaxSeconds": _ceil(max(r["first_call_s"] for r in rows), 1),
         "CompileCpus": str(_one((r["cpus"] for r in rows), "CPU count")),
     }

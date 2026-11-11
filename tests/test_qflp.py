@@ -334,20 +334,21 @@ def test_label_table_pools_discordant_seeds_per_batch(tmp_path):
             else "stuck", "any_recovered": ok, "best_error": 0.0 if ok else 2.0,
         }  # fmt: skip
 
-    # Circuit 4q: seed 0 recovered only with the label. Circuit 8q: seed 0 only with, seed 1 only
-    # without. Batch 1 agrees everywhere.
+    # Circuit 4q: seed 0 recovered only with the label. Circuit 8q: seeds 0 and 2 only with, seed 1
+    # only without. Batch 1 agrees everywhere.
     rows = [
         row(4, 2, "known", 0, True), row(4, 2, "unknown", 0, False),
         row(8, 2, "known", 0, True), row(8, 2, "unknown", 0, False),
         row(8, 2, "known", 1, False), row(8, 2, "unknown", 1, True),
+        row(8, 2, "known", 2, True), row(8, 2, "unknown", 2, False),
         row(4, 1, "known", 0, True), row(4, 1, "unknown", 0, True),
     ]  # fmt: skip
     macros = label_table(rows, tmp_path / "rq4.tex")
-    assert (macros["LabelKnownOnlyTwo"], macros["LabelUnknownOnlyTwo"]) == ("2", "1")
+    assert (macros["LabelKnownOnlyTwo"], macros["LabelUnknownOnlyTwo"]) == ("3", "1")
     assert (macros["LabelKnownOnlyOne"], macros["LabelUnknownOnlyOne"]) == ("0", "0")
-    assert macros["LabelPooledPTwo"] == "1.000"
-    assert (macros["LabelKnownOnlyAll"], macros["LabelUnknownOnlyAll"]) == ("2", "1")
-    assert (macros["LabelTopBatch"], macros["LabelKnownOnlyTop"]) == ("2", "1")
+    assert macros["LabelPooledPTwo"] == "= 0.625"
+    assert (macros["LabelKnownOnlyAll"], macros["LabelUnknownOnlyAll"]) == ("3", "1")
+    assert (macros["LabelTopBatch"], macros["LabelKnownOnlyTop"]) == ("2", "2")
     assert macros["LabelTopCircuit"] == "8-qubit $1\\times2$"
     assert len((tmp_path / "rq4.tex").read_text().splitlines()) == 3
 
