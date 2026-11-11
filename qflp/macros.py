@@ -131,9 +131,17 @@ def rq1_macros(rows: list[dict]) -> dict[str, str]:
         )
         s = by[(n, 1, 1)]
         out[f"SquareWrong{name}"] = str(seeds - s["recovered"])
-        out[f"SquareOtherRestart{name}"] = str(
-            sum(r["any_recovered"] and r["best_outcome"] != "recovered" for r in square)
+        other = [r for r in square if r["any_recovered"] and r["best_outcome"] != "recovered"]
+        _require(
+            all(
+                d["match"] <= attack.EXPLAINS_SLACK * r["grad_norm2"]
+                for r in other
+                for d, o in zip(r["restarts_detail"], outcomes(r), strict=True)
+                if o == "recovered"
+            ),
+            "the restart that found the true input also matched exactly",
         )
+        out[f"SquareOtherRestart{name}"] = str(len(other))
     close = [
         r["best_error"]
         for r in rows
@@ -227,6 +235,15 @@ def rq2_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
         noise = [r["true_match"] for r in rows if r["n_qubits"] == n and r["shots"] == low]
         out[f"ShotSignal{name}"] = f"{statistics.median(signal):.2f}"
         out[f"ShotNoise{name}"] = f"{statistics.median(noise):.2f}"
+        if n == large:
+            _require(
+                statistics.median(noise) >= statistics.median(signal),
+                f"at {large} qubits and {low} shots the noise was as large as the signal",
+            )
+    _require(
+        all(2 * s["ambiguous"] > seeds - s["within_close"] for s in at_low[large]),
+        f"most {large}-qubit failures at {low} shots were ambiguous",
+    )
     _require(
         all(2 * s["within_close"] < seeds for s in at_low[large]),
         f"at {large} qubits and {low} shots every circuit was private on most seeds",
@@ -277,9 +294,9 @@ def rq2_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
 
     deep_exact = stuck_seeds([r for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) == deep], 0)
     deep_noisy = [r for r in rows if (r["n_qubits"], r["reps"], r["layers"]) == deep]
-    out["ShotDeepStillStuck"] = str(
-        len(deep_exact.intersection(*(stuck_seeds(deep_noisy, s) for s in clean)))
-    )
+    still = len(deep_exact.intersection(*(stuck_seeds(deep_noisy, s) for s in clean)))
+    _require(2 * still > len(deep_exact), "noise moved few of the exact-gradient stuck seeds")
+    out["ShotDeepStillStuck"] = str(still)
 
     same = [r for r in rows if (r["n_qubits"], r["reps"], r["layers"]) == (small, 4, 1)]
     exact = [r for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) == (small, 4, 1)]
@@ -318,6 +335,7 @@ def budget_stats(rows: list[dict], small_budget: int) -> dict[tuple, dict]:
 def budget_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
     """The restart budget: the RQ1 circuits with the most stuck seeds, rerun with more restarts."""
     small_budget = _one((r["restarts"] for r in rq1), "RQ1 restart count")
+    rows = [r for r in rows if r["shots"] == 0 and r["batch"] == 1]
     base = {(r["n_qubits"], r["reps"], r["layers"], r["seed"]): r for r in rq1}
     for r in rows:
         old = base[(r["n_qubits"], r["reps"], r["layers"], r["seed"])]
@@ -345,15 +363,15 @@ def budget_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
     )
     rate = {k: s["rate"] for k, s in stats.items()}
     _require(
-        rate[(large, 2, 1)] > rate[(large, 4, 1)] > rate[(large, 8, 1)],
-        "more repetitions gave a lower per-restart rate along l = 1",
+        rate[(large, 8, 1)] < min(rate[(large, 2, 1)], rate[(large, 4, 1)]),
+        "along l = 1, 8 repetitions gave the lowest per-restart rate",
     )
     _require(
         rate[(large, 4, 2)] > rate[(large, 8, 1)],
         "more repetitions gave a lower per-restart rate at the largest parameter count",
     )
     _require(
-        all(s["after"] >= s["before"] for s in stats.values()),
+        all(s["after"] > s["before"] for s in stats.values()),
         "recovered seeds rose with more restarts",
     )
     stuck_before = sum(s["stuck_before"] for s in stats.values())
@@ -371,6 +389,10 @@ def budget_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
         if 2 * n_rec > seeds or (k in stats and k != hardest and 2 * stats[k]["after"] > seeds)
     ]
     held = sorted(set(rq1_recovered) - set(leaked))
+    _require(
+        all(2 * n_rec != seeds for n_rec in rq1_recovered.values()),
+        "no circuit was recovered on exactly half its seeds",
+    )
     _require(
         held == sorted([k for k in rq1_recovered if k[1] == k[2] == 1] + [hardest]),
         "only r = l = 1 and the hardest budget circuit kept the input on most seeds",

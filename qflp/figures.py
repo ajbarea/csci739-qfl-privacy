@@ -264,6 +264,8 @@ def batch_table(rows: list[dict], out: Path, restarts: int) -> dict[str, str]:
     held = [s for s in summary if s["recovered"] == 0]
     if max(ratio[id(s)] for s in leaked) >= min(ratio[id(s)] for s in held):
         raise prose.ClaimError("recovery does not separate on unknowns per effective parameter")
+    if not max(ratio[id(s)] for s in leaked) < 1 < min(ratio[id(s)] for s in held):
+        raise prose.ClaimError("the grid brackets one unknown per effective parameter")
     errors = [s["median_error"] for s in summary if ratio[id(s)] > 1]
     if any(s["ambiguous"] != s["seeds"] for s in summary if ratio[id(s)] > 1):
         raise prose.ClaimError("past one unknown per parameter, every seed was ambiguous")
@@ -281,14 +283,10 @@ def batch_table(rows: list[dict], out: Path, restarts: int) -> dict[str, str]:
     if len(stuck) != 2:
         raise prose.ClaimError("the stuck seeds below a ratio of 1 sit on two circuits")
     for circuit in stuck:
-        line = [s["stuck"] for s in sorted(below, key=lambda s: s["batch"])
-                if (s["n_qubits"], s["reps"], s["layers"]) == circuit]  # fmt: skip
-        base = [s["stuck"] for s in summary if (s["n_qubits"], s["reps"], s["layers"]) == circuit
-                and s["batch"] == 1]  # fmt: skip
-        if any(a > b for a, b in itertools.pairwise(base + line)):
-            raise prose.ClaimError(
-                "below a ratio of 1, a larger batch never lowered the stuck count"
-            )
+        mine = [s for s in summary if (s["n_qubits"], s["reps"], s["layers"]) == circuit]
+        line = [s["stuck"] for s in sorted(mine, key=lambda s: s["batch"]) if ratio[id(s)] < 1]
+        if any(a >= b for a, b in itertools.pairwise(line)):
+            raise prose.ClaimError("below a ratio of 1, a larger batch left more seeds stuck")
     (shallow, deep) = (stuck[k] for k in sorted(stuck, key=lambda k: k[2]))
     lines = [
         f"{s['n_qubits']} & ${s['reps']}\\times{s['layers']}$ & {s['n_effective']} & "
@@ -378,10 +376,12 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     known_only, circuit, key = top[b]
     unknown = summary[(*key, "unknown")]
     known_on_top = summary[(*key, "known")]
+    if known_all <= unknown_all:
+        raise prose.ClaimError("the label-free attack recovered fewer inputs")
+    if mcnemar_exact(known_all, unknown_all) >= 0.05:
+        raise prose.ClaimError("the pooled label test is significant (p < 0.05)")
     if unknown["stuck"] <= known_on_top["stuck"]:
         raise prose.ClaimError("hiding the label left more seeds stuck on that circuit")
-    if known_all <= unknown_all or mcnemar_exact(known_all, unknown_all) >= 0.05:
-        raise prose.ClaimError("the label-free attack recovered fewer inputs (pooled p < 0.05)")
     if b != max(pooled):
         raise prose.ClaimError("the label difference sits at the largest batch")
     if 2 * known_only <= pooled[b][0]:
@@ -404,19 +404,23 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
 
 TASK_LABEL = {"linear": "Linear", "curves2": "Curves, $D{=}2$", "curves10": "Curves, $D{=}10$"}
 TASK_MACRO = {"linear": "Linear", "curves2": "CurvesTwo", "curves10": "CurvesTen"}
+TASK_PROSE = {"linear": "the linear task", "curves2": "curves with $D = 2$",
+              "curves10": "curves with $D = 10$"}  # fmt: skip
 # The task the report discusses as the lead: the one with the smallest per-task p.
 LEAD_TASK = "curves2"
 
 
 def _p_relation(p: float) -> str:
     """A p-value as math text that follows `$p$`: `= 0.627`, two significant figures below 0.01
-    (`= 0.0015`), `< 0.001` below 0.0005, and four decimals where three would round a p below
+    (`= 0.0015`), `< 0.001` below 0.0005, and `< 0.05` where three decimals would round a p below
     0.05 up to 0.050."""
     if p < 0.0005:
         return "< 0.001"
     if p < 0.01:
         return f"= {p:.2g}"
-    return f"= {p:.4f}" if p < 0.05 <= round(p, 3) else f"= {p:.3f}"
+    if p < 0.05 <= round(p, 3):
+        return "< 0.05"
+    return f"= {p:.3f}"
 
 
 def trained_map(rows: list[dict], out: Path) -> None:
@@ -474,6 +478,8 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
     logistic = {(b["task"], b["n_qubits"]): b["test_acc"] for b in baselines}
     order = {t: i for i, t in enumerate(TASK_LABEL)}
     lines = []
+    gap: dict[tuple, float] = {}
+    accs: dict[str, list[float]] = defaultdict(list)
     pooled: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     discordant = _discordant(rows, setting, "step", first, last)
     for key in sorted(discordant, key=lambda k: (order[k[0]], *k[1:])):
@@ -486,6 +492,8 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
             f"{TASK_LABEL[task]} & {n} & ${reps}\\times{layers}$ & "
             f"{acc:.2f} ({logistic[(task, n)]:.2f}) & {cells} \\\\"
         )
+        gap[key] = logistic[(task, n)] - acc
+        accs[task] += [acc, logistic[(task, n)]]
         pooled[task][0] += discordant[key][0]
         pooled[task][1] += discordant[key][1]
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -498,6 +506,12 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
     ]
     shallow = {k: s["recovered"] for k, s in summary.items() if s["reps"] == 1}
     lowest = min(shallow, key=lambda k: shallow[k])
+    seeds = max(s["seeds"] for s in summary.values())
+    if 2 * shallow[lowest] <= seeds:
+        raise prose.ClaimError("every 1 x l setting was recovered on most seeds at every step")
+    if sum(v == shallow[lowest] for v in shallow.values()) > 1:
+        raise prose.ClaimError("one setting holds the fewest 1 x l recoveries")
+    worst = max(gap, key=lambda k: gap[k])
     if any(r["best_outcome"] not in ("recovered", "stuck") for r in rows):
         raise prose.ClaimError("every trained attack ended recovered or stuck")
     macros = {
@@ -510,6 +524,11 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
         "TrainedAttacks": str(len(rows)),
         "TrainedSteps": prose._and(str(st) for st in steps),
         "TrainedTasks": str(len(pooled)),
+        "TrainedWorstGap": f"{gap[worst]:.2f}",
+        "TrainedWorstCircuit": f"{worst[1]}-qubit ${worst[2]}\\times{worst[3]}$",
+        "TrainedWorstTask": TASK_PROSE[worst[0]],
+        "TrainedTenAccLow": f"{min(accs['curves10'], default=0):.2f}",
+        "TrainedTenAccHigh": f"{max(accs['curves10'], default=0):.2f}",
     }
     p_task = {task: mcnemar_exact(*counts) for task, counts in pooled.items()}
     for task, (b, a) in pooled.items():

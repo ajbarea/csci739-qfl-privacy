@@ -10,7 +10,7 @@ import pytest
 from qflp import macros
 from qflp.figures import batch_table, budget_table, label_table, trained_table
 from qflp.figures import main as figures_main
-from qflp.summarize import best_outcome, load
+from qflp.summarize import best_outcome, load, outcomes
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / "report"
@@ -318,6 +318,46 @@ def _majority_unknown_stuck(d):
     _label(_label_rows(d, (4, 1, 2, 1), "unknown", "recovered", "stuck", 15), d)
 
 
+def _flip(rows, match, frm, to, n):
+    """A copy of rows with the first `n` rows matching `match` and outcome `frm` set to `to`."""
+    rows = copy.deepcopy(rows)
+    hit = [r for r in rows if r["best_outcome"] == frm and all(r[k] == v for k, v in match.items())]
+    assert len(hit) >= n, (match, frm, len(hit))
+    for r in hit[:n]:
+        r["best_outcome"] = to
+    return rows
+
+
+def _hit_after(rows, circuit, start, n):
+    """`n` restarts of `circuit` from index `start` on find the input."""
+    rows = copy.deepcopy(rows)
+    left = n
+    for r in rows:
+        if _key(r) == circuit:
+            for x in r["restarts_detail"][start:]:
+                if left and x["error"] > 0.05:
+                    x["error"], left = 0.0, left - 1
+    assert left == 0
+    return rows
+
+
+def _square_other_inexact(rows):
+    """The restart that found a 1 x 1 input matched worse than the wrong preimage."""
+    rows = copy.deepcopy(rows)
+    r = next(r for r in rows if _key(r) == (4, 1, 1) and r["any_recovered"]
+             and r["best_outcome"] != "recovered")  # fmt: skip
+    for d, o in zip(r["restarts_detail"], outcomes(r), strict=True):
+        if o == "recovered":
+            d["match"] = 1.0
+    return rows
+
+
+def _unstick_deep(rows):
+    """At 10^4 shots, 7 of the 8-qubit 4 x 1 circuit's stuck seeds are recovered instead."""
+    return _flip(rows, {"n_qubits": 8, "reps": 4, "layers": 1, "shots": 10**4}, "stuck",
+                 "recovered", 7)  # fmt: skip
+
+
 S821 = {"n_qubits": 8, "reps": 2, "layers": 1}
 TOP4 = (8, 1, 2, 2)  # the RQ4 setting with most known-only seeds: 8 qubits, 1 x 2, B = 2
 
@@ -364,7 +404,7 @@ MUTANTS = [
      "stuck"}, True, best_outcome="recovered"), _budget, "hardest circuit held"),
     ("rose", "budget", lambda r: _set(r, {"reps": 8, "layers": 1, "best_outcome": "recovered"},
      True, best_outcome="stuck"), _budget, "rose with more restarts"),
-    ("rate-l1", "budget", lambda r: _miss_after(r, (8, 2, 1), 10), _budget, "along l = 1"),
+    ("rate-l1", "budget", lambda r: _hit_after(r, (8, 8, 1), 10, 44), _budget, "along l = 1"),
     ("most-stuck-set", "rq1", lambda r: _set(r, {"n_qubits": 8, "reps": 2, "layers": 2,
      "best_outcome": "recovered"}, True, best_outcome="stuck"), _budget_rq1, "RQ1 circuits"),
     ("only-held", "rq1", lambda r: _set(r, {"n_qubits": 4, "reps": 8, "layers": 1,
@@ -378,22 +418,41 @@ MUTANTS = [
     ("below-ambiguous", "batch", lambda r: _set(r, {"n_qubits": 8, "reps": 1, "layers": 2,
      "batch": 2, "best_outcome": "stuck"}, best_outcome="ambiguous"), _batch,
      "no failure was ambiguous"),
-    ("label-stuck-more", "rq4", lambda r: r, lambda m, d: _label(_label_rows(d, TOP4, "unknown",
-     "stuck", "recovered", 7), d), "more seeds stuck"),
     ("label-ambiguous", "rq4", lambda r: _set(r, {"n_qubits": 8, "reps": 1, "layers": 2,
      "batch": 2, "label": "unknown", "best_outcome": "stuck"}, best_outcome="ambiguous"), _label,
      "were not ambiguous"),
     ("label-close", "rq4", lambda r: _set(r, {"n_qubits": 8, "reps": 1, "layers": 2,
      "batch": 2, "label": "unknown", "best_outcome": "stuck"}, best_outcome="close"), _label,
      "were not close"),
-    ("label-direction", "rq4", lambda r: _swap(r, "label", "known", "unknown",
-     keep=lambda x: (*_key(x), x["batch"]) == TOP4), _label, "recovered fewer inputs"),
+    ("label-significance", "rq4", lambda r: _swap(r, "label", "known", "unknown",
+     keep=lambda x: (*_key(x), x["batch"]) == TOP4), _label, "is significant"),
+    ("label-direction", "rq4", lambda r: r, lambda m, d: _label(_label_rows(d, (8, 1, 4, 2),
+     "known", "recovered", "stuck", 16), d), "recovered fewer inputs"),
+    ("label-stuck-equal", "rq4", lambda r: r, lambda m, d: _label(_label_rows(d, TOP4, "unknown",
+     "stuck", "ambiguous", 7), d), "more seeds stuck"),
     ("label-one-circuit", "rq4", lambda r: r, lambda m, d: _label(_label_rows(d, (8, 1, 4, 2),
      "unknown", "recovered", "stuck", 6), d), "mostly on one circuit"),
     ("trained-outcomes", "rq5", lambda r: _set(r, {"step": 300}, best_outcome="close"), _trained,
      "recovered or stuck"),
-    ("trained-shallow", "rq5", lambda r: _set(r, {"task": "linear", "n_qubits": 4, "reps": 1,
-     "step": 10}, True, best_outcome="stuck"), _trained, "fewest 1 x l"),
+    ("trained-shallow", "rq5", lambda r: _flip(r, {"task": "linear", "n_qubits": 4, "reps": 1,
+     "step": 10}, "recovered", "stuck", 5), _trained, "fewest 1 x l"),
+    ("trained-shallow-most", "rq5", lambda r: _flip(r, {"task": "linear", "n_qubits": 4,
+     "reps": 1, "step": 10}, "recovered", "stuck", 11), _trained, "on most seeds"),
+    ("trained-shallow-tie", "rq5", lambda r: _flip(r, {"task": "linear", "n_qubits": 4,
+     "reps": 1, "step": 10}, "recovered", "stuck", 4), _trained, "one setting holds"),
+    ("square-both-exact", "rq1", _square_other_inexact, _rq1, "also matched exactly"),
+    ("noise-signal", "rq2", lambda r: _set(r, {"n_qubits": 8, "shots": 100}, True,
+     true_match=0.0), _rq2, "as large as the signal"),
+    ("low-shot-ambiguous", "rq2", lambda r: _flip(r, {"n_qubits": 8, "reps": 1, "layers": 4,
+     "shots": 100}, "ambiguous", "stuck", 15), _rq2, "were ambiguous"),
+    ("still-stuck", "rq2", _unstick_deep, _rq2, "moved few"),
+    ("half", "rq1", lambda r: _flip(r, {"n_qubits": 4, "reps": 8, "layers": 1}, "recovered",
+     "stuck", 2), _budget_rq1, "exactly half"),
+    ("bracket", "batch", lambda r: _set(_set(r, {"n_qubits": 4, "reps": 1, "layers": 4,
+     "batch": 8}, best_outcome="recovered"), {"n_qubits": 8, "reps": 1, "layers": 4, "batch": 8},
+     best_outcome="recovered"), _batch, "brackets one unknown"),
+    ("batch-all-recovered", "batch", lambda r: _set(r, {"n_qubits": 8, "reps": 1, "layers": 4,
+     "batch": 4}, True, best_outcome="recovered"), _batch, "left more seeds stuck"),
 ]  # fmt: skip
 
 WHOLE = [
@@ -410,7 +469,7 @@ WHOLE = [
     ("label-batch", _majority_unknown_stuck, "largest batch"),
     ("label-significant", _significant_setting, "significant"),
     ("no-slope", _no_slope, "came within CLOSE_RAD at three"),
-    ("batch-stuck-falls", _batch_stuck_falls, "never lowered the stuck count"),
+    ("batch-stuck-falls", _batch_stuck_falls, "left more seeds stuck"),
     ("batch-two-sizes", _batch_two_sizes, "at one size"),
     ("batch-one-circuit", _batch_one_circuit, "on two circuits"),
 ]  # fmt: skip
