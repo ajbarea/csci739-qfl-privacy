@@ -189,6 +189,34 @@ def rq1_macros(rows: list[dict]) -> dict[str, str]:
     )
     out["StuckFourOneSmall"] = str(by[(small, 4, 1)]["stuck"])
     out["StuckFourOneLarge"] = str(by[(large, 4, 1)]["stuck"])
+    # The closest r >= 2 failure, as a multiple of the ambiguity slack.
+    closest = min(
+        r["best_match"] / r["grad_norm2"]
+        for r in rows
+        if r["reps"] >= 2 and r["best_outcome"] != "recovered"
+    )
+    out["StuckClosestSlack"] = f"{closest / attack.EXPLAINS_SLACK:.2f}"
+    _require(
+        out["StuckClosestSlack"] != "1.00", "the closest r >= 2 failure prints above the slack"
+    )
+
+    # Every restart's outcome, pooled over seeds, along each fixed-product line.
+    hits: dict[tuple, int] = defaultdict(int)
+    tries: dict[tuple, int] = defaultdict(int)
+    for r in rows:
+        k = (r["n_qubits"], r["reps"], r["layers"])
+        hits[k] += outcomes(r).count("recovered")
+        tries[k] += len(r["restarts_detail"])
+    out["RestartTries"] = str(_one(tries.values(), "restart count per circuit"))
+    for n, name in ((small, "Small"), (large, "Large")):
+        for product in {reps * layers for _, reps, layers in by if reps * layers > 1}:
+            line = [hits[k] for k in sorted(by) if k[0] == n and k[1] * k[2] == product]
+            _require(
+                all(a > b for a, b in itertools.pairwise(line)),
+                "each added repetition lowered the per-restart success on every line",
+            )
+        top_line = sorted(k for k in by if k[0] == n and k[1] * k[2] == top)
+        out[f"RestartHits{name}"] = _and(str(hits[k]) for k in top_line)
     return out
 
 
@@ -398,6 +426,10 @@ def budget_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
         "only r = l = 1 and the hardest budget circuit kept the input on most seeds",
     )
     others = sorted(k for k in stats if k != hardest)
+    _require(
+        all(2 * stats[k]["stuck_recovered"] > stats[k]["stuck_before"] for k in others),
+        "on every circuit but the hardest, most stuck seeds were recovered",
+    )
     _require(2 * stats[hardest]["after"] < seeds, "the hardest circuit held on most seeds")
     seconds = statistics.median(r["seconds"] / r["restarts"] for r in rows)
     budget = _one((r["restarts"] for r in rows), "budget restart count")

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from qflp import macros
-from qflp.figures import batch_table, budget_table, label_table, trained_table
+from qflp.figures import batch_table, budget_table, label_table, trained_cells, trained_table
 from qflp.figures import main as figures_main
 from qflp.summarize import best_outcome, load, outcomes
 
@@ -145,6 +145,51 @@ def _trained(mutant, d):
     trained_table(mutant, d["baselines"], d["tmp"] / "rq5.tex")
 
 
+def _cells(mutant, d):
+    trained_cells(mutant)
+
+
+def _first(rows, match):
+    return next(r for r in rows if all(r[k] == v for k, v in match.items()))
+
+
+def _restarts_all_found(rows):
+    """Every restart of the 4-qubit 8 x 1 circuit finds the input."""
+    rows = copy.deepcopy(rows)
+    for r in rows:
+        if _key(r) == (4, 8, 1):
+            for d in r["restarts_detail"]:
+                d["error"] = 0.0
+    return rows
+
+
+def _concordant(rows, plan):
+    """Per task, make `n` 4 x 1 seeds that were recovered only before (or only after) training
+    recovered at both ends or neither, by setting their step-0 outcome."""
+    rows = copy.deepcopy(rows)
+    at = {(r["task"], *_key(r), r["seed"], r["step"]): r for r in rows}
+    for task, (side, n) in plan.items():
+        done = 0
+        for k, r in at.items():
+            if done == n or k[0] != task or k[2:4] != (4, 1) or k[-1] != 0:
+                continue
+            ok0 = r["best_outcome"] == "recovered"
+            ok1 = at[(*k[:-1], 300)]["best_outcome"] == "recovered"
+            if (side == "before" and ok0 and not ok1) or (side == "after" and ok1 and not ok0):
+                r["best_outcome"] = "stuck" if side == "before" else "recovered"
+                done += 1
+        assert done == n, (task, side, done)
+    return rows
+
+
+def _grown_gradient(rows):
+    rows = copy.deepcopy(rows)
+    for r in rows:
+        if r["step"] == 300:
+            r["grad_norm2"] *= 10
+    return rows
+
+
 def _rescore(rows):
     """Recompute each row's best outcome from its restarts, as `load` does."""
     for r in rows:
@@ -267,12 +312,12 @@ def _batch_stuck_falls(d):
     _batch(rows, d)
 
 
-def _stuck_not_recovered(d):
-    """Six 2 x 1 seeds that 50 restarts recovered stay stuck instead."""
+def _stuck_not_recovered(d, n=6):
+    """`n` 2 x 1 seeds that 50 restarts recovered stay stuck instead."""
     budget = copy.deepcopy(d["budget"])
     hit = [r for r in budget if _key(r) == (8, 2, 1) and r["best_outcome"] == "recovered"
            and best_outcome(r, 10) == "stuck"]  # fmt: skip
-    for r in hit[:6]:
+    for r in hit[:n]:
         r["best_outcome"] = "stuck"
     _budget(budget, d)
 
@@ -443,6 +488,17 @@ MUTANTS = [
     ("trained-shallow-tie", "rq5", lambda r: _flip(r, {"task": "linear", "n_qubits": 4,
      "reps": 1, "step": 10}, "recovered", "stuck", 4), _trained, "one setting holds"),
     ("square-both-exact", "rq1", _square_other_inexact, _rq1, "also matched exactly"),
+    ("restart-rate", "rq1", _restarts_all_found, _rq1, "per-restart success"),
+    ("closest-slack", "rq1", lambda r: _set(r, {"n_qubits": 8, "reps": 2, "layers": 1,
+     "best_outcome": "stuck"}, best_match=1.001e-6 * _first(r, {"n_qubits": 8, "reps": 2,
+     "layers": 1, "best_outcome": "stuck"})["grad_norm2"]), _rq1, "prints above the slack"),
+    ("trained-opposite", "rq5", lambda r: _concordant(r, {"linear": ("after", 2), "curves10":
+     ("after", 6), "curves2": ("before", 6)}), _trained, "opposite ways"),
+    ("trained-fit", "rq5", lambda r: _set(r, {"task": "linear", "n_qubits": 4, "reps": 1,
+     "step": 300}, True, test_acc=1.0), _trained, "better than any other task"),
+    ("trained-shrank", "rq5", _grown_gradient, _cells, "shrank in some setting"),
+    ("trained-deep-below", "rq5", lambda r: _set(r, {"n_qubits": 8, "reps": 4}, True,
+     best_outcome="recovered"), _cells, "fewer than half"),
     ("noise-signal", "rq2", lambda r: _set(r, {"n_qubits": 8, "shots": 100}, True,
      true_match=0.0), _rq2, "as large as the signal"),
     ("low-shot-ambiguous", "rq2", lambda r: _flip(r, {"n_qubits": 8, "reps": 1, "layers": 4,
@@ -462,6 +518,7 @@ WHOLE = [
     ("repeat-error", _first_seed_not_best, r"\(error\)"),
     ("repeat-count", _rq1_outcome_flipped, "reproduce the RQ1 count"),
     ("most-stuck-recovered", _stuck_not_recovered, "were recovered with more restarts"),
+    ("most-stuck-each", lambda d: _stuck_not_recovered(d, 5), "every circuit but the hardest"),
     ("repeat-match", _match_moved, r"\(match\)"),
     ("lead", _lead_mutant, "smallest per-task p"),
     ("lead-direction", lambda d: _trained_swap(d, ("curves2",)), "fewer curves2"),
@@ -484,7 +541,7 @@ def data(real, tmp_path):
 
 def test_real_results_pass_every_guard(data):
     for key, fn in (("rq1", _rq1), ("rq2", _rq2), ("budget", _budget), ("batch", _batch),
-                    ("rq4", _label), ("rq5", _trained)):  # fmt: skip
+                    ("rq4", _label), ("rq5", _trained), ("rq5", _cells)):  # fmt: skip
         fn(data[key], data)
 
 

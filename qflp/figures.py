@@ -105,7 +105,7 @@ def privacy_map(rows: list[dict], out: Path, restarts: int) -> None:
             )
         ax.set_xscale("log", base=2)
         ax.set_xticks([1, 2, 4, 8], labels=["1", "2", "4", "8"])
-        ax.set_xlabel("encoding repetitions $r$ (layers $= $ product$/r$)")
+        ax.set_xlabel(r"encoding repetitions $r$ ($r\ell$ fixed per line)")
         ax.set_title(f"{n} qubits", fontsize=10)
         ax.set_ylim(-0.03, 1.03)
         _tidy(ax)
@@ -481,12 +481,15 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
     gap: dict[tuple, float] = {}
     accs: dict[str, list[float]] = defaultdict(list)
     pooled: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    fit: dict[tuple, float] = {}
+    final_acc: dict[tuple, list[float]] = defaultdict(list)
+    for r in rows:
+        if r["step"] == last:
+            final_acc[tuple(r[k] for k in setting)].append(r["test_acc"])
     discordant = _discordant(rows, setting, "step", first, last)
     for key in sorted(discordant, key=lambda k: (order[k[0]], *k[1:])):
         task, n, reps, layers = key
-        acc = statistics.median(
-            r["test_acc"] for r in rows if (*(r[k] for k in setting), r["step"]) == (*key, last)
-        )
+        acc = fit[key] = statistics.median(final_acc[key])
         cells = " & ".join(_outcome_cell(summary[(*key, st)]) for st in steps)
         lines.append(
             f"{TASK_LABEL[task]} & {n} & ${reps}\\times{layers}$ & "
@@ -501,9 +504,13 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
     before = sum(a for a, _ in pooled.values())
     after = sum(b for _, b in pooled.values())
     by_seed = {(*(r[k] for k in setting), r["seed"], r["step"]): r["grad_norm2"] for r in rows}
-    ratios = [
-        by_seed[(*k[:-1], last)] / by_seed[(*k[:-1], first)] for k in by_seed if k[-1] == first
-    ]
+    task_ratios: dict[str, list[float]] = defaultdict(list)
+    for k in by_seed:
+        if k[-1] == first:
+            ratio = by_seed[(*k[:-1], last)] / by_seed[k]
+            task_ratios[k[0]].append(ratio)
+    ratios = [x for v in task_ratios.values() for x in v]
+    task_ratio = {t: statistics.median(v) for t, v in task_ratios.items()}
     shallow = {k: s["recovered"] for k, s in summary.items() if s["reps"] == 1}
     if any(k[3] != 4 for k in shallow):
         raise prose.ClaimError("every 1 x l setting is 1 x 4")
@@ -537,6 +544,7 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
         macros[f"TrainedOnlyBefore{TASK_MACRO[task]}"] = str(b)
         macros[f"TrainedOnlyAfter{TASK_MACRO[task]}"] = str(a)
         macros[f"TrainedPooledP{TASK_MACRO[task]}"] = _p_relation(p_task[task])
+        macros[f"TrainedGradRatio{TASK_MACRO[task]}"] = f"{task_ratio[task]:.2f}"
     # The report names one task as the lead; Bonferroni over the per-task tests, which are
     # secondary to the pooled one.
     if LEAD_TASK in p_task:
@@ -550,11 +558,55 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
         macros["TrainedLeadBonferroni"] = _p_relation(p_lead)
         if lowest[0] != LEAD_TASK:
             raise prose.ClaimError(f"the fewest 1 x l recoveries are on {LEAD_TASK}")
+        lead_fit = min(v for k, v in fit.items() if k[0] == LEAD_TASK)
+        if any(v >= lead_fit for k, v in fit.items() if k[0] != LEAD_TASK):
+            raise prose.ClaimError(f"every circuit fit {LEAD_TASK} better than any other task")
+        macros["TrainedLeadAccLow"] = f"{lead_fit:.2f}"
     if mcnemar_exact(before, after) < 0.05:
         raise prose.ClaimError("training showed no overall change in recovery (pooled p >= 0.05)")
-    if statistics.median(ratios) < 1:
-        raise prose.ClaimError("training did not shrink the median gradient")
+    if len(pooled) > 1 and not any(b < a for b, a in pooled.values()):
+        raise prose.ClaimError("the tasks leaned opposite ways")
+    if any(v < 1 for v in task_ratio.values()):
+        raise prose.ClaimError("training did not shrink the median gradient on any task")
     return macros
+
+
+def trained_cells(rows: list[dict]) -> dict[str, str]:
+    """RQ5 macros per setting: where the median seed's gradient shrank from the first step to the
+    last, and the cells of the deepest-encoding circuit at the larger size recovered on fewer than
+    half the seeds (attacked at the base restart count only)."""
+    setting = ("task", "n_qubits", "reps", "layers")
+    steps = sorted({r["step"] for r in rows})
+    by_seed = {(*(r[k] for k in setting), r["seed"], r["step"]): r["grad_norm2"] for r in rows}
+    ratios: dict[tuple, list[float]] = defaultdict(list)
+    for k, g in by_seed.items():
+        if k[-1] == steps[0]:
+            ratios[k[:4]].append(by_seed[(*k[:-1], steps[-1])] / g)
+    shrank = sorted((statistics.median(v), k) for k, v in ratios.items())
+    shrank = [(v, k) for v, k in shrank if v < 1]
+    if not shrank:
+        raise prose.ClaimError("the median seed's gradient shrank in some setting")
+    big = max(r["n_qubits"] for r in rows)
+    deep = {
+        (*(s[k] for k in setting), s["step"]): s
+        for s in table(rows)
+        if s["n_qubits"] == big and s["reps"] > 1
+    }
+    below = [s for s in deep.values() if 2 * s["recovered"] < s["seeds"]]
+    if not below:
+        raise prose.ClaimError("some deep trained cell was recovered on fewer than half the seeds")
+    v, (task, n, reps, layers) = shrank[0]
+    return {
+        "TrainedShrankSettings": str(len(shrank)),
+        "TrainedShrankMin": f"{v:.2f}",
+        "TrainedShrankCircuit": f"{n}-qubit ${reps}\\times{layers}$",
+        "TrainedShrankTask": TASK_PROSE[task],
+        "TrainedDeepBelowHalf": str(len(below)),
+        "TrainedDeepCells": str(len(deep)),
+        "TrainedDeepCircuit": prose._one(
+            (f"{k[1]}-qubit ${k[2]}\\times{k[3]}$" for k in deep), "deep trained circuit"
+        ),
+    }
 
 
 def _batch_name(b: int) -> str:
@@ -615,6 +667,7 @@ def main(argv: list[str] | None = None) -> None:
     trained = files["rq5"]
     trained_map(trained, args.report / "figures" / "trained.pdf")
     macros.update(trained_table(trained, baselines, args.report / "tables" / "rq5.tex"))
+    macros.update(trained_cells(trained))
     write_macros(macros, args.report / "tables" / "numbers.tex")
 
 
