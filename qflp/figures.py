@@ -505,6 +505,8 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
         by_seed[(*k[:-1], last)] / by_seed[(*k[:-1], first)] for k in by_seed if k[-1] == first
     ]
     shallow = {k: s["recovered"] for k, s in summary.items() if s["reps"] == 1}
+    if any(k[3] != 4 for k in shallow):
+        raise prose.ClaimError("every 1 x l setting is 1 x 4")
     lowest = min(shallow, key=lambda k: shallow[k])
     seeds = max(s["seeds"] for s in summary.values())
     if 2 * shallow[lowest] <= seeds:

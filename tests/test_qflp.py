@@ -415,9 +415,12 @@ def test_trained_table_pairs_seeds_across_the_first_and_last_step(tmp_path):
             "grad_norm2": g,
         }  # fmt: skip
 
-    # Seed 0 recovered only before training, seed 1 only after; gradients grow 4x and 2x.
+    # Seed 0 recovered only before training, seed 1 only after, seeds 2-4 at both ends and step 10
+    # alone holds the fewest recoveries (3 of 5); gradients grow 4x, 2x, 3x, 1x and 5x.
     rows = [row(0, 0, True, 1.0), row(300, 0, False, 4.0), row(0, 1, False, 1.0),
-            row(300, 1, True, 2.0), row(10, 0, True, 3.0), row(10, 1, True, 1.5)]  # fmt: skip
+            row(300, 1, True, 2.0), row(10, 0, False, 3.0), row(10, 1, False, 1.5)]  # fmt: skip
+    rows += [row(st, s, True, g) for s, g in ((2, 3.0), (3, 1.0), (4, 5.0))
+             for st, g in ((0, 1.0), (10, 1.0), (300, g))]  # fmt: skip
     base = [{"task": "linear", "n_qubits": 4, "model": "logistic", "test_acc": 1.0}]
     macros = trained_table(rows, base, tmp_path / "rq5.tex")
     assert (macros["TrainedOnlyBeforeAll"], macros["TrainedOnlyAfterAll"]) == ("1", "1")

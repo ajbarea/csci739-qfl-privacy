@@ -438,6 +438,8 @@ MUTANTS = [
      "step": 10}, "recovered", "stuck", 5), _trained, "fewest 1 x l"),
     ("trained-shallow-most", "rq5", lambda r: _flip(r, {"task": "linear", "n_qubits": 4,
      "reps": 1, "step": 10}, "recovered", "stuck", 11), _trained, "on most seeds"),
+    ("trained-shallow-layers", "rq5", lambda r: [{**x, "layers": 2} if x["reps"] == 1 and
+     x["task"] == "linear" and x["n_qubits"] == 4 else x for x in r], _trained, "is 1 x 4"),
     ("trained-shallow-tie", "rq5", lambda r: _flip(r, {"task": "linear", "n_qubits": 4,
      "reps": 1, "step": 10}, "recovered", "stuck", 4), _trained, "one setting holds"),
     ("square-both-exact", "rq1", _square_other_inexact, _rq1, "also matched exactly"),
