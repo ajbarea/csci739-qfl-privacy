@@ -29,6 +29,7 @@ def _require(ok: bool, claim: str) -> None:
 
 def _and(items) -> str:
     items = list(items)
+    _require(bool(items), "a list the prose names is not empty")
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
 
 
@@ -161,18 +162,22 @@ def rq1_macros(rows: list[dict]) -> dict[str, str]:
         for product in {reps * layers for _, reps, layers in by if reps * layers > 1}:
             line = [by[k]["stuck"] for k in sorted(by) if k[0] == n and k[1] * k[2] == product]
             _require(
-                all(a <= b for a, b in itertools.pairwise(line)) and line[-1] > line[0],
-                "at a fixed product, more repetitions never lowered the stuck count and the "
-                "largest r was stuck more than r = 1",
+                all(a <= b for a, b in itertools.pairwise(line)),
+                "at a fixed product, more repetitions never lowered the stuck count",
             )
+            _require(line[-1] > line[0], "the largest r was stuck on more seeds than r = 1")
     deep = [(reps, layers) for (n, reps, layers) in by if n == small and reps >= 2]
     _require(
         all(by[(large, *g)]["stuck"] > by[(small, *g)]["stuck"] for g in deep),
         "every r >= 2 shape was stuck on more seeds at the larger size",
     )
     _require(
-        all(s["ambiguous"] == s["close"] == 0 for (_, reps, _), s in by.items() if reps >= 2),
-        "no attack with r >= 2 ended ambiguous or close: every failure was stuck",
+        all(s["ambiguous"] == 0 for (_, reps, _), s in by.items() if reps >= 2),
+        "no attack with r >= 2 ended ambiguous",
+    )
+    _require(
+        all(s["close"] == 0 for (_, reps, _), s in by.items() if reps >= 2),
+        "no attack with r >= 2 ended close",
     )
     out["StuckFourOneSmall"] = str(by[(small, 4, 1)]["stuck"])
     out["StuckFourOneLarge"] = str(by[(large, 4, 1)]["stuck"])
@@ -273,7 +278,7 @@ def rq2_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
     deep_exact = stuck_seeds([r for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) == deep], 0)
     deep_noisy = [r for r in rows if (r["n_qubits"], r["reps"], r["layers"]) == deep]
     out["ShotDeepStillStuck"] = str(
-        min(len(deep_exact & stuck_seeds(deep_noisy, s)) for s in clean)
+        len(deep_exact.intersection(*(stuck_seeds(deep_noisy, s) for s in clean)))
     )
 
     same = [r for r in rows if (r["n_qubits"], r["reps"], r["layers"]) == (small, 4, 1)]
@@ -290,7 +295,8 @@ def budget_stats(rows: list[dict], small_budget: int) -> dict[tuple, dict]:
     of them, and the fraction of all restarts that recovered the input."""
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for r in rows:
-        groups[(r["n_qubits"], r["reps"], r["layers"])].append(r)
+        if r["shots"] == 0 and r["batch"] == 1:
+            groups[(r["n_qubits"], r["reps"], r["layers"])].append(r)
     stats = {}
     for key, rs in sorted(groups.items()):
         per = [o == "recovered" for r in rs for o in outcomes(r)]
@@ -299,6 +305,11 @@ def budget_stats(rows: list[dict], small_budget: int) -> dict[tuple, dict]:
             "n_effective": rs[0]["n_effective"],
             "before": sum(best_outcome(r, small_budget) == "recovered" for r in rs),
             "after": sum(r["best_outcome"] == "recovered" for r in rs),
+            "stuck_before": sum(best_outcome(r, small_budget) == "stuck" for r in rs),
+            "stuck_recovered": sum(
+                best_outcome(r, small_budget) == "stuck" and r["best_outcome"] == "recovered"
+                for r in rs
+            ),
             "rate": sum(per) / len(per),
         }
     return stats
@@ -311,35 +322,46 @@ def budget_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
     for r in rows:
         old = base[(r["n_qubits"], r["reps"], r["layers"], r["seed"])]
         first = r["restarts_detail"][:small_budget]
+        for f in ("error", "match"):
+            _require(
+                all(
+                    math.isclose(a[f], b[f], rel_tol=1e-6, abs_tol=1e-9)
+                    for a, b in zip(first, old["restarts_detail"], strict=True)
+                ),
+                f"the first restarts of each budget run repeat the RQ1 attack ({f})",
+            )
         _require(
-            best_outcome(r, small_budget) == old["best_outcome"]
-            and all(
-                math.isclose(a[f], b[f], rel_tol=1e-6, abs_tol=1e-9)
-                for a, b in zip(first, old["restarts_detail"], strict=True)
-                for f in ("error", "match")
-            ),
-            "the first restarts of each budget run repeat the RQ1 attack",
+            best_outcome(r, small_budget) == old["best_outcome"],
+            "the first restarts of each budget run reproduce the RQ1 count",
         )
     stats = budget_stats(rows, small_budget)
     seeds = _one((s["seeds"] for s in stats.values()), "seed count")
     large = _one((k[0] for k in stats), "budget qubit count")
     rq1_by = {(s["n_qubits"], s["reps"], s["layers"]): s for s in table(rq1)}
-    most_stuck = sorted(
-        (k for k in rq1_by if k[0] == large), key=lambda k: rq1_by[k]["stuck"], reverse=True
-    )
-    cut = rq1_by[most_stuck[len(stats) - 1]]["stuck"]
+    others_stuck = [s["stuck"] for k, s in rq1_by.items() if k[0] == large and k not in stats]
     _require(
-        set(stats) == set(most_stuck[: len(stats)])
-        and rq1_by[most_stuck[len(stats)]]["stuck"] < cut,
+        min(rq1_by[k]["stuck"] for k in stats) > max(others_stuck, default=-1),
         "the budget circuits are the RQ1 circuits with the most stuck seeds",
     )
-    hardest = min(stats, key=lambda k: stats[k]["rate"])
     rate = {k: s["rate"] for k, s in stats.items()}
     _require(
-        rate[(large, 2, 1)] > rate[(large, 4, 1)] > rate[(large, 8, 1)]
-        and rate[(large, 4, 2)] > rate[(large, 8, 1)],
-        "more repetitions gave a lower per-restart rate along l = 1 and at 120 parameters",
+        rate[(large, 2, 1)] > rate[(large, 4, 1)] > rate[(large, 8, 1)],
+        "more repetitions gave a lower per-restart rate along l = 1",
     )
+    _require(
+        rate[(large, 4, 2)] > rate[(large, 8, 1)],
+        "more repetitions gave a lower per-restart rate at the largest parameter count",
+    )
+    _require(
+        all(s["after"] >= s["before"] for s in stats.values()),
+        "recovered seeds rose with more restarts",
+    )
+    stuck_before = sum(s["stuck_before"] for s in stats.values())
+    _require(
+        2 * sum(s["stuck_recovered"] for s in stats.values()) > stuck_before,
+        "most stuck seeds were recovered with more restarts",
+    )
+    hardest = min(stats, key=lambda k: stats[k]["rate"])
     rq1_recovered: dict[tuple, int] = defaultdict(int)
     for r in rq1:
         rq1_recovered[(r["n_qubits"], r["reps"], r["layers"])] += r["best_outcome"] == "recovered"

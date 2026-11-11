@@ -28,17 +28,19 @@ noise.
 
 - uv, ruff (format + check), ty, pytest. CI runs exactly those on 3.12-3.14.
 - **`qflp/`, a JAX statevector simulator with `lax.scan`**, runs the attack. It needs the gradient
-  of a gradient-matching loss (second-order autodiff). PennyLane autograd took ~27 s per 4x4 attack,
-  and `jax.jit` over a PennyLane QNode unrolls every gate, so compile time grows with depth; the
-  scan version compiles once per shape in <10 s at 8 qubits (`qflp.compile_time`). **PennyLane `default.qubit` is the reference**: tests pin the
-  simulator's probabilities and gradients to it at 1e-12. Change the circuit in both or neither.
+  of a gradient-matching loss (second-order autodiff). PennyLane autograd was slow
+  (`spike/results-*.txt`), and `jax.jit` over a PennyLane QNode unrolls every gate; the scan version
+  compiles once per shape (`qflp.compile_time --out results/compile-time.jsonl` records it).
+  **PennyLane `default.qubit` is the reference**: tests pin the simulator's probabilities and
+  gradients to it within `qflp.circuit.REFERENCE_TOL`. Change the circuit in both or neither.
 - `uv run python -m qflp.sweep ... --out results/<name>.jsonl` appends one row per run and skips rows
   already present, so a killed sweep resumes. `python -m qflp.summarize results/*.jsonl` prints the
   outcome table. `results/` is the source of record; prose quotes it, never a console tail.
 - **No number in the report is typed by hand.** `uv run python -m qflp.figures` writes the tables
   and `report/tables/numbers.tex` (prose macros, from `results/` and the constants in `qflp/`);
   `qflp/macros.py` also asserts each unnumbered claim the prose makes. `tests/test_report.py` fails
-  when a committed table is stale or a macro is unused or undefined. After a sweep or a threshold
+  when a committed table is stale or a macro is unused or undefined, and holds one mutant per
+  claim guard: a new guard needs a mutant that only it catches. After a sweep or a threshold
   change, rerun `qflp.figures` and commit its output.
 - `--label fixed|known|unknown` (docstring of `qflp/sweep.py`): rows from before the label axis
   load as `fixed` through `qflp.rows.DEFAULTS`. A new row field needs a default there too.

@@ -7,6 +7,7 @@ them is typed by hand.
 """
 
 import argparse
+import itertools
 import json
 import math
 import statistics
@@ -68,7 +69,7 @@ def _recovered_with_interval(flags: list[bool]) -> tuple[float, float, float]:
     return k / m, k / m - lo, hi - k / m
 
 
-def privacy_map(rows: list[dict], out: Path, restarts: int = 10) -> None:
+def privacy_map(rows: list[dict], out: Path, restarts: int) -> None:
     """Recovered fraction against encoding reps, one line per fixed reps x layers product."""
     exact = [r for r in rows if r["shots"] == 0 and r["batch"] == 1 and r["restarts"] == restarts]
     qubits = sorted({r["n_qubits"] for r in exact})
@@ -262,19 +263,32 @@ def batch_table(rows: list[dict], out: Path, restarts: int) -> dict[str, str]:
     leaked = [s for s in summary if s["recovered"] > 0]
     held = [s for s in summary if s["recovered"] == 0]
     if max(ratio[id(s)] for s in leaked) >= min(ratio[id(s)] for s in held):
-        raise ValueError("recovery does not separate on unknowns per effective parameter")
+        raise prose.ClaimError("recovery does not separate on unknowns per effective parameter")
     errors = [s["median_error"] for s in summary if ratio[id(s)] > 1]
     if any(s["ambiguous"] != s["seeds"] for s in summary if ratio[id(s)] > 1):
         raise prose.ClaimError("past one unknown per parameter, every seed was ambiguous")
     below = [s for s in summary if ratio[id(s)] < 1 and s["recovered"] < s["seeds"]]
-    if any(s["close"] or s["ambiguous"] for s in below):
-        raise prose.ClaimError("below one unknown per parameter, every failure was stuck")
+    if any(s["close"] for s in below):
+        raise prose.ClaimError("below one unknown per parameter, no failure was close")
+    if any(s["ambiguous"] for s in below):
+        raise prose.ClaimError("below one unknown per parameter, no failure was ambiguous")
     stuck = {}
     for s in below:
         circuit = (s["n_qubits"], s["reps"], s["layers"])
         stuck[circuit] = max(stuck.get(circuit, s), s, key=lambda x: x["stuck"])
-    if len({n for n, _, _ in stuck}) != 1 or len(stuck) != 2:
-        raise prose.ClaimError("the stuck seeds below a ratio of 1 sit on two circuits of one size")
+    if len({n for n, _, _ in stuck}) != 1:
+        raise prose.ClaimError("the stuck seeds below a ratio of 1 sit at one size")
+    if len(stuck) != 2:
+        raise prose.ClaimError("the stuck seeds below a ratio of 1 sit on two circuits")
+    for circuit in stuck:
+        line = [s["stuck"] for s in sorted(below, key=lambda s: s["batch"])
+                if (s["n_qubits"], s["reps"], s["layers"]) == circuit]  # fmt: skip
+        base = [s["stuck"] for s in summary if (s["n_qubits"], s["reps"], s["layers"]) == circuit
+                and s["batch"] == 1]  # fmt: skip
+        if any(a > b for a, b in itertools.pairwise(base + line)):
+            raise prose.ClaimError(
+                "below a ratio of 1, a larger batch never lowered the stuck count"
+            )
     (shallow, deep) = (stuck[k] for k in sorted(stuck, key=lambda k: k[2]))
     lines = [
         f"{s['n_qubits']} & ${s['reps']}\\times{s['layers']}$ & {s['n_effective']} & "
@@ -363,12 +377,19 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     b = max(pooled, key=lambda b: pooled[b][0])
     known_only, circuit, key = top[b]
     unknown = summary[(*key, "unknown")]
-    if b != max(pooled) or 2 * known_only <= pooled[b][0]:
-        raise prose.ClaimError(
-            "the label difference sits at the largest batch, mostly on one circuit"
-        )
-    if unknown["ambiguous"] or unknown["close"]:
-        raise prose.ClaimError("the label-free failures on that circuit were stuck, not ambiguous")
+    known_on_top = summary[(*key, "known")]
+    if unknown["stuck"] <= known_on_top["stuck"]:
+        raise prose.ClaimError("hiding the label left more seeds stuck on that circuit")
+    if known_all <= unknown_all or mcnemar_exact(known_all, unknown_all) >= 0.05:
+        raise prose.ClaimError("the label-free attack recovered fewer inputs (pooled p < 0.05)")
+    if b != max(pooled):
+        raise prose.ClaimError("the label difference sits at the largest batch")
+    if 2 * known_only <= pooled[b][0]:
+        raise prose.ClaimError("the label difference sits mostly on one circuit")
+    if unknown["ambiguous"]:
+        raise prose.ClaimError("the label-free failures on that circuit were not ambiguous")
+    if unknown["close"]:
+        raise prose.ClaimError("the label-free failures on that circuit were not close")
     if min(p_setting) < 0.05:
         raise prose.ClaimError("no single setting's difference is significant")
     macros |= {
@@ -389,10 +410,13 @@ LEAD_TASK = "curves2"
 
 def _p_relation(p: float) -> str:
     """A p-value as math text that follows `$p$`: `= 0.627`, two significant figures below 0.01
-    (`= 0.0015`), or `< 0.001` below 0.0005."""
+    (`= 0.0015`), `< 0.001` below 0.0005, and four decimals where three would round a p below
+    0.05 up to 0.050."""
     if p < 0.0005:
         return "< 0.001"
-    return f"= {p:.3f}" if p >= 0.01 else f"= {p:.2g}"
+    if p < 0.01:
+        return f"= {p:.2g}"
+    return f"= {p:.4f}" if p < 0.05 <= round(p, 3) else f"= {p:.3f}"
 
 
 def trained_map(rows: list[dict], out: Path) -> None:
@@ -497,10 +521,18 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
     if LEAD_TASK in p_task:
         if min(p_task, key=lambda t: p_task[t]) != LEAD_TASK:
             raise prose.ClaimError(f"{LEAD_TASK} has the smallest per-task p")
+        if pooled[LEAD_TASK][0] <= pooled[LEAD_TASK][1]:
+            raise prose.ClaimError(f"fewer {LEAD_TASK} seeds were recovered after training")
+        if any(p < 0.05 for t, p in p_task.items() if t != LEAD_TASK):
+            raise prose.ClaimError("the other per-task tests are not significant")
         p_lead = min(1.0, len(p_task) * p_task[LEAD_TASK])
         macros["TrainedLeadBonferroni"] = _p_relation(p_lead)
         if lowest[0] != LEAD_TASK:
             raise prose.ClaimError(f"the fewest 1 x l recoveries are on {LEAD_TASK}")
+    if mcnemar_exact(before, after) < 0.05:
+        raise prose.ClaimError("training showed no overall change in recovery (pooled p >= 0.05)")
+    if statistics.median(ratios) < 1:
+        raise prose.ClaimError("training did not shrink the median gradient")
     return macros
 
 
@@ -532,7 +564,6 @@ def main(argv: list[str] | None = None) -> None:
         "rq4": load([args.results / "rq4.jsonl"]),
         "rq5": load([args.results / "rq5.jsonl"]),
     }
-    privacy_map(rq1, args.report / "figures" / "privacy-map.pdf")
     outcome_table(rq1, args.report / "tables" / "rq1.tex")
     shot_noise(rq2, args.report / "figures" / "shot-noise.pdf")
     shots_table(rq2, args.report / "tables" / "rq2.tex")
@@ -546,6 +577,7 @@ def main(argv: list[str] | None = None) -> None:
         **prose.compile_macros(args.results / "compile-time.jsonl"),
     }
     restarts = int(macros["Restarts"])
+    privacy_map(rq1, args.report / "figures" / "privacy-map.pdf", restarts)
     budget_table(
         budget_rows,
         args.report / "tables" / "budget.tex",

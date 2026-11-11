@@ -334,21 +334,19 @@ def test_label_table_pools_discordant_seeds_per_batch(tmp_path):
             else "stuck", "any_recovered": ok, "best_error": 0.0 if ok else 2.0,
         }  # fmt: skip
 
-    # Circuit 4q: seed 0 recovered only with the label. Circuit 8q: seeds 0 and 2 only with, seed 1
-    # only without. Batch 1 agrees everywhere.
+    # Circuit 4q: seed 0 recovered only with the label. Circuit 8q: seeds 0-4 only with it. Batch 1
+    # agrees everywhere.
     rows = [
         row(4, 2, "known", 0, True), row(4, 2, "unknown", 0, False),
-        row(8, 2, "known", 0, True), row(8, 2, "unknown", 0, False),
-        row(8, 2, "known", 1, False), row(8, 2, "unknown", 1, True),
-        row(8, 2, "known", 2, True), row(8, 2, "unknown", 2, False),
+        *(row(8, 2, lab, s, lab == "known") for s in range(5) for lab in ("known", "unknown")),
         row(4, 1, "known", 0, True), row(4, 1, "unknown", 0, True),
     ]  # fmt: skip
     macros = label_table(rows, tmp_path / "rq4.tex")
-    assert (macros["LabelKnownOnlyTwo"], macros["LabelUnknownOnlyTwo"]) == ("3", "1")
+    assert (macros["LabelKnownOnlyTwo"], macros["LabelUnknownOnlyTwo"]) == ("6", "0")
     assert (macros["LabelKnownOnlyOne"], macros["LabelUnknownOnlyOne"]) == ("0", "0")
-    assert macros["LabelPooledPTwo"] == "= 0.625"
-    assert (macros["LabelKnownOnlyAll"], macros["LabelUnknownOnlyAll"]) == ("3", "1")
-    assert (macros["LabelTopBatch"], macros["LabelKnownOnlyTop"]) == ("2", "2")
+    assert macros["LabelPooledPTwo"] == "= 0.031"
+    assert (macros["LabelKnownOnlyAll"], macros["LabelUnknownOnlyAll"]) == ("6", "0")
+    assert (macros["LabelTopBatch"], macros["LabelKnownOnlyTop"]) == ("2", "5")
     assert macros["LabelTopCircuit"] == "8-qubit $1\\times2$"
     assert len((tmp_path / "rq4.tex").read_text().splitlines()) == 3
 
@@ -417,14 +415,14 @@ def test_trained_table_pairs_seeds_across_the_first_and_last_step(tmp_path):
             "grad_norm2": g,
         }  # fmt: skip
 
-    # Seed 0 recovered only before training, seed 1 only after; gradients shrink 4x and 2x.
-    rows = [row(0, 0, True, 4.0), row(300, 0, False, 1.0), row(0, 1, False, 2.0),
-            row(300, 1, True, 1.0), row(10, 0, True, 3.0), row(10, 1, True, 1.5)]  # fmt: skip
+    # Seed 0 recovered only before training, seed 1 only after; gradients grow 4x and 2x.
+    rows = [row(0, 0, True, 1.0), row(300, 0, False, 4.0), row(0, 1, False, 1.0),
+            row(300, 1, True, 2.0), row(10, 0, True, 3.0), row(10, 1, True, 1.5)]  # fmt: skip
     base = [{"task": "linear", "n_qubits": 4, "model": "logistic", "test_acc": 1.0}]
     macros = trained_table(rows, base, tmp_path / "rq5.tex")
     assert (macros["TrainedOnlyBeforeAll"], macros["TrainedOnlyAfterAll"]) == ("1", "1")
     assert macros["TrainedFinalStep"] == "300"
-    assert macros["TrainedGradRatioMedian"] == "0.38"
+    assert macros["TrainedGradRatioMedian"] == "3.00"
     (line,) = (tmp_path / "rq5.tex").read_text().splitlines()
     assert line.count("/") == 9 and "0.90 (1.00)" in line
 

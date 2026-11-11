@@ -37,12 +37,11 @@ At 8 qubits and a fixed \ParamsTopLarge{} effective parameters, the input was re
 local minima. With
 \BudgetRestarts{} restarts instead of \Restarts, \BudgetOthersCount{} of the \BudgetCircuits{}
 hardest 8-qubit circuits gave up the input on \BudgetOthersMin--\BudgetOthersMax{} seeds, and the
-\BudgetHardestCircuit{} circuit on \BudgetHardestRecovered. At 100 shots per expectation value in
-the client's gradient, the attack came within \CloseRad~rad on at most \ShotLowWithinLargeMax{} of
+\BudgetHardestCircuit{} circuit on \BudgetHardestRecovered. At 100 shots per expectation value, the attack came within \CloseRad~rad on at most \ShotLowWithinLargeMax{} of
 \Seeds{} seeds for every 8-qubit circuit. Batches gave up their inputs at up to \BatchLeakMaxRatio{} unknowns per effective
 parameter and never from \BatchHeldMinRatio{} up. Against a label-free attack, hiding binary
-labels lowered recovery (paired exact McNemar $p \LabelPooledPAll$), almost all with two inputs per
-update. Training the client's circuit on \TrainedTasks{} benchmark tasks showed no overall change in
+labels lowered recovery (paired exact McNemar $p \LabelPooledPAll$). Of the \LabelKnownOnlyAll{}
+seeds recovered only with labels, \LabelKnownOnlyTwo{} had two inputs per update. Training the client's circuit on \TrainedTasks{} benchmark tasks showed no overall change in
 recovery (\TrainedOnlyBeforeAll{} seeds recovered only before training,
 \TrainedOnlyAfterAll{} only after, $p \TrainedPooledPAll$). Fewer seeds were recovered after
 training on low-frequency curves, a lead for further tests.
@@ -150,11 +149,11 @@ qubit, each gate with its own parameter, followed by an open CNOT chain $0\to1\t
 $f(x;\theta) = \tfrac1N\sum_q\braket{Z_q}$ and the client's loss is $(f - y)^2$, with $y = 1$
 outside RQ4 and RQ5. A single-qubit observable would leave some inputs outside its light cone, so
 they would never reach the gradient. The mean over all qubits avoids that, and a test checks it on
-four circuit shapes.
+several circuit shapes.
 
 The circuit has $2r\ell N$ parameters. The last block's $R_Z$ gates are followed only by CNOTs and
 a $Z$-diagonal measurement, so they never change the output. We report the
-$P_{\mathrm{eff}} = 2r\ell N - N$ \emph{effective} parameters, and a test confirms on three circuit
+$P_{\mathrm{eff}} = 2r\ell N - N$ \emph{effective} parameters, and a test confirms on several circuit
 shapes that exactly these have nonzero gradient. Inputs are drawn uniformly from $[0,\pi)^N$.
 
 \subsection{Simulator}
@@ -162,7 +161,7 @@ The attack differentiates through a gradient, so it needs second-order automatic
 In our feasibility spike, PennyLane~\cite{bergholm2018} with autograd took \SpikeSeconds~s for
 \SpikeSeeds{} attacks of \SpikeRestarts{} restarts each on a \SpikeQubits-qubit circuit with
 $r = \SpikeReps$ and $\ell = \SpikeLayers$. Compiling the PennyLane circuit with JAX unrolls every
-gate, so compile time grows with circuit depth. We wrote a statevector simulator in
+gate, so the compiled program grows with circuit depth. We wrote a statevector simulator in
 JAX~\cite{jax2018} that scans over repetitions and blocks, so it compiles once per circuit shape.
 At \CompileQubits{} qubits its first call, which compiles, took at most \CompileMaxSeconds~s for
 the \CompileShapes{} shapes on \CompileCpus{} logical CPUs. Tests pin its output probabilities and
@@ -208,16 +207,15 @@ Each attack ends in one of four outcomes:
   \item \emph{Ambiguous}: an input further away that matches the gradient at least as well as the
   true one, $\mathcal L(\hat x) \le \mathcal L(x) + \ExplainsSlack\|g\|^2$. For an exact gradient
   $\mathcal L(x) = 0$, so this is a second exact preimage.
-  \item \emph{Stuck}: a local minimum that matches worse than the true input.
+  \item \emph{Stuck}: an end point (a local minimum, or the iteration limit) that matches worse
+  than the true input.
 \end{itemize}
 Under shot noise we also report the median reconstruction error. A paired comparison (labels
 known or not, before or after training) uses the exact McNemar test on the seeds recovered under
 one condition only. Each setting has its own clients, so a pooled test adds the settings'
 discordant pairs; we treat the pooled test as primary and the per-setting tests as descriptive.
-Outcomes are recomputed from each
-restart's stored error and loss, so a change of threshold needs no rerun. Every setting uses
-\Seeds{} seeds, each with its own input and parameters. Error bars in the figures are 95\% Wilson
-intervals.
+Every setting uses \Seeds{} seeds, each with its own input and parameters. Error bars on
+recovered fractions are 95\% Wilson intervals.
 
 \subsection{Shot Noise}
 For RQ2 the client estimates its gradient as a device would. Each $\partial f/\partial\theta_j$
@@ -282,9 +280,7 @@ Three regimes appear:
   \SquareCloseSmall{} lay within \SquareCloseMaxErr~rad of the truth (``close'' in Table~\ref{tab:rq1}).
   Another restart did find the true input on \SquareOtherRestartSmall{} and
   \SquareOtherRestartLarge{} of those seeds, but both matched exactly, so the loss could not single
-  it out. The
-  gradient does not determine the input here, so the server cannot tell which preimage is the
-  client's.
+  it out.
   \item \textbf{One encoding layer, more trainable layers: recovered.} Every $1\times\ell$ circuit
   with $\ell\ge 2$ gave up its input on \Seeds{} of \Seeds{} seeds, at both sizes, from
   \ShallowMinParams{} to \ShallowMaxParams{} effective parameters.
@@ -363,7 +359,8 @@ dashed line is \CloseRad~rad.}
 \end{figure}
 
 \begin{itemize}
-  \item \textbf{At 4 qubits, shot noise did not stop the attack.} Even at 100 shots the median
+  \item \textbf{At 4 qubits, the attack came within \CloseRad~rad on at least half the seeds at
+  every shot count.} At 100 shots the median
   error was \ShotLowErrSmallMin--\ShotLowErrSmallMax~rad, with
   \ShotLowWithinSmallMin--\ShotLowWithinSmallMax{} of \Seeds{} seeds within \CloseRad~rad.
   \item \textbf{At 8 qubits, 100 shots stopped the attack on most seeds of every circuit}, with
@@ -376,18 +373,20 @@ dashed line is \CloseRad~rad.}
   for the exact gradient; at 4 qubits these were \ShotNoiseSmall{} and \ShotSignalSmall. Most
   8-qubit failures at 100 shots were ambiguous
   (\ShotLowAmbigLargeMin--\ShotLowAmbigLargeMax{} of \Seeds{} seeds): another input fit the noisy
-  gradient as well as the true one.
+  gradient as well as the true one. The exact gradient's squared norm fell from \ShotSignalSmall{} to
+  \ShotSignalLarge{} between 4 and 8 qubits, consistent with gradients concentrating as random
+  circuits grow~\cite{mcclean2018}; two sizes cannot show that trend.
   \item \textbf{Below \CloseRad~rad, the error fell about as fast as the shot noise.} We fit log median
   error against $\log S$ on the \ShotSlopeCircuits{} circuits whose median error was within
   \CloseRad~rad at three or more shot counts, using only those counts. The slopes ran from
   \ShotSlopeMin{} to \ShotSlopeMax; the standard error of $S$ samples has slope $-1/2$.
-  \item \textbf{Noise moved few stuck seeds.} From \ShotDeepStuckFrom{} shots up, where no seed was
-  ambiguous, the 8-qubit $4\times1$ circuit was stuck on \ShotDeepStuckMin--\ShotDeepStuckMax{} of
-  \Seeds{} seeds, against \StuckFourOneLarge{} with exact gradients. At least \ShotDeepStillStuck{}
-  of those \StuckFourOneLarge{} stayed stuck at every one of these shot counts.
-  \item \textbf{Noise did not change which seeds got stuck.} The $4\times1$ circuit at 4 qubits was
-  stuck on the same \StuckFourOneSmall{} seeds with exact gradients and at every shot count, from
-  the same starting points. Those failures come from the loss landscape, not from the noise.
+  \item \textbf{Noise moved few stuck seeds.} The 4-qubit $4\times1$ circuit was stuck on the same
+  \StuckFourOneSmall{} seeds with exact gradients and at every shot count, from the same starting
+  points. From \ShotDeepStuckFrom{} shots up, where no seed was ambiguous, the 8-qubit $4\times1$
+  circuit was stuck on \ShotDeepStuckMin--\ShotDeepStuckMax{} of \Seeds{} seeds, against
+  \StuckFourOneLarge{} with exact gradients; \ShotDeepStillStuck{} of those \StuckFourOneLarge{}
+  were stuck at every one of these shot counts. These failures come mostly from the loss
+  landscape, not from the noise.
 \end{itemize}
 
 \subsection{RQ3: Batch Size}\label{sec:rq3}
@@ -428,13 +427,11 @@ as effective parameters. Bars are 95\% Wilson intervals.}
   crossover. Past $NB = P_{\mathrm{eff}}$ the gradient gives fewer equations than unknowns, so its
   exact preimages generically form a set of dimension at least $NB - P_{\mathrm{eff}}$ and
   ambiguity is expected. At equality, the $r = \ell = 1$ circuits of RQ1 already had other exact
-  preimages. Papadopoulos et
-  al.'s threshold~\cite{papadopoulos2025} counts all $P$ parameters rather than
-  $P_{\mathrm{eff}}$.
+  preimages. By our reading, Papadopoulos et al.'s threshold~\cite{papadopoulos2025} counts all
+  $P$ parameters rather than $P_{\mathrm{eff}}$.
   \item \textbf{Past that point every seed was ambiguous.} The attacker found a different batch that
   fits the gradient as well as the true one, with its worst-matched input a median of
-  \BatchAmbigErrLow{} to \BatchAmbigErrHigh~rad from the truth. The gradient alone no longer
-  singles out the true batch.
+  \BatchAmbigErrLow{} to \BatchAmbigErrHigh~rad from the truth.
   \item \textbf{Below it, the \BatchStuckQubits-qubit failures were stuck.} The
   \BatchStuckShallowCircuit{} circuit was stuck on \BatchStuckShallow{} seeds at
   $B = \BatchStuckShallowAt$, and the \BatchStuckDeepCircuit{} circuit on \BatchStuckDeep{} seeds at
@@ -474,7 +471,9 @@ Qubits & $r\times\ell$ & $B$ & Known & Unknown & $p$ \\
   \item \textbf{The extra failures were stuck, not ambiguous.} On that circuit at
   $B = \LabelTopBatch$, \LabelTopStuckUnknown{} seeds were stuck without the labels against
   \LabelTopStuckKnown{} with them. Hiding the label raised the cost of the search rather than
-  making the input ambiguous.
+  making the input ambiguous. An attacker that tries all $2^B$ labelings runs the known-label
+  attack as one of them, so at $B \le 2$ it can include that attack for at most four times the
+  restarts.
 \end{itemize}
 
 \subsection{RQ5: Trained Versus Untrained Circuits}\label{sec:rq5}
@@ -514,8 +513,8 @@ Table~\ref{tab:rq5}.}
   \item \textbf{Training showed no overall change in recovery.} Pooled over all
   \TrainedSettings{} settings,
   \TrainedOnlyBeforeAll{} seeds were recovered only before training and
-  \TrainedOnlyAfterAll{} only after it, an exact McNemar $p \TrainedPooledPAll$ on the paired
-  seeds. The median squared gradient norm at step \TrainedFinalStep{} was
+  \TrainedOnlyAfterAll{} only after it (step 0 against step \TrainedFinalStep), an exact McNemar
+  $p \TrainedPooledPAll$ on the paired seeds. The median squared gradient norm at step \TrainedFinalStep{} was
   \TrainedGradRatioMedian{} times its step-0 value, so training did not shrink the gradient the
   attacker sees.
   \item \textbf{The $1\times4$ circuits stayed mostly recoverable.} Every $1\times4$ setting was
@@ -531,8 +530,8 @@ Table~\ref{tab:rq5}.}
   $p \TrainedLeadBonferroni$ after a Bonferroni correction for the \TrainedTasks{} per-task
   tests). This is one dataset with one training example per seed, so we read it as a lead for further tests, not a result.
   \item \textbf{Every failure was stuck.} None of the \TrainedAttacks{} attacks ended close or
-  ambiguous. Where recovery moved, it moved through stuck searches; no trained gradient had a
-  second exact preimage.
+  ambiguous. Where recovery moved, it moved through stuck searches; the attack found no second
+  exact preimage of a trained gradient.
   \item \textbf{The circuits learned unevenly.} The $D = 10$ circuits stayed near their logistic
   baseline, and on the linear task the 8-qubit $4\times1$ circuit fell
   furthest below it (Table~\ref{tab:rq5}). Privacy at step \TrainedFinalStep{} therefore describes
@@ -542,12 +541,12 @@ Table~\ref{tab:rq5}.}
 \section{Discussion and Limitations}
 \emph{What the regimes say about each claim.} Encoding repetitions made the attack harder at a fixed
 parameter count, which points the same way as Kumar et al.'s mechanism~\cite{kumar2023}: more
-encoding frequencies, more spurious minima. Our encoding raises the frequencies linearly in $r$
-rather than exponentially. Our attacker runs L-BFGS-B for up to \MaxIter{} iterations from
-\Restarts{} starts on every feature, against their 60 ADAM steps on one feature. The setups
-differ in both directions. The $1\times\ell$
-results agree with Papadopoulos et al.~\cite{papadopoulos2025}: once the trainable block gives more
-gradient equations than unknowns, the attack succeeded on every seed.
+encoding frequencies, more spurious minima. Our attacker runs L-BFGS-B for up to \MaxIter{}
+iterations from \Restarts{} starts, solving for all features jointly; theirs runs 60 ADAM steps
+from 10 starts on one feature. With a single input, the $1\times\ell$ results agree with
+Papadopoulos et al.~\cite{papadopoulos2025}: once the trainable block gave more gradient equations
+than unknowns, the attack succeeded on every seed. With batches at 8 qubits, some seeds got stuck
+below that point (Section~\ref{sec:rq3}).
 
 \emph{Stuck is not private.} A stuck attack failed with this budget, from these starting points. It
 does not show that the input is safe. With \BudgetRestarts{} restarts instead of \Restarts, most
@@ -562,18 +561,15 @@ number of qubits, our two sizes cannot test.
   \item All circuits are simulated and at most 8 qubits. The results show where each claim holds
   at this size, not how it scales.
   \item RQ5 trains with one optimizer on \TrainedTasks{} small tasks, and the trained circuits fit
-  some tasks poorly. The attack sees one training example's gradient per seed. Kumar et al.\ show
-  loss landscapes in which a model with 2 qubits per feature, fit to a low-frequency target, lost
-  its spurious minima, while one with 4 qubits per feature kept them~\cite{kumar2023}. We saw
-  fewer recoveries on
-  the low-frequency task, but the pooled test shows no change, and the setups differ.
+  some tasks poorly. The attack sees one training example's gradient per seed. In Kumar et al.,
+  a model with 2 qubits per feature trained on a low-frequency target had a simpler attack loss landscape
+  and less privacy, while one with 4 qubits per feature kept its privacy~\cite{kumar2023}. Our low-frequency lead points the other way, toward fewer recoveries
+  after training, and the setups differ.
   \item A batch's error is that of its worst-matched input. We did not measure how many inputs of
   an ambiguous batch were still recovered.
   \item The attacker ignores the input domain. Inputs lie in $[0,\pi)^N$, so a domain-aware
   attacker could reject some ambiguous preimages; the results do not store reconstructed inputs,
   so we cannot count how many lie inside it.
-  \item Labels are binary. An attacker could also try all $2^B$ labelings with the known-label
-  loss; we did not test that attack.
   \item Shot noise is the only device noise modelled. Gate and readout noise are future work.
   \item We do not measure trainability, which Heredge et al.\ tie to the same structure that
   enables the attack~\cite{heredge2025}. We also did not compute our circuits' Lie algebras, so we
@@ -582,20 +578,19 @@ number of qubits, our two sizes cannot test.
 
 \section{Conclusion}
 On simulated 4- and 8-qubit re-uploading circuits, against an attacker who knows the circuit and its
-parameters, we asked when the client's input stays private on most seeds.
+parameters, we asked when the attack fails on most seeds.
 
-With exact gradients, two cases kept the input private on most seeds. In the $1\times1$ circuits,
+With exact gradients, the attack failed on most seeds in two cases. In the $1\times1$ circuits,
 with exactly as many effective parameters as inputs, the gradient had several exact preimages.
 Against the 8-qubit
 \BudgetHardestCircuit{} circuit the attack found the input on \BudgetHardestRate\% of restarts,
-and the input stayed private on \BudgetHardestHeld{} of \Seeds{} seeds after \BudgetRestarts{}
-restarts. Every other circuit leaked its input on most seeds within \Restarts{} restarts, or within
+and it failed on \BudgetHardestHeld{} of \Seeds{} seeds after \BudgetRestarts{} restarts. Every other circuit leaked its input on most seeds within \Restarts{} restarts, or within
 \BudgetRestarts{} for the other circuits we retested. Moving parameters into encoding repetitions
 made each restart less likely to succeed, pooled over seeds.
 
 Under shot noise we ran \Restarts{} restarts and counted a reconstruction within \CloseRad~rad as a
-leak. At 8 qubits, 100 shots per expectation value kept every circuit private on most seeds, and
-1000 shots did so for \ShotPrivateAtSecond. The attack on the 8-qubit $4\times1$ circuit came within \CloseRad~rad on
+leak. At 8 qubits and 100 shots per expectation value, the input leaked on fewer than half
+the seeds of every circuit; at 1000 shots this held for \ShotPrivateAtSecond. The attack on the 8-qubit $4\times1$ circuit came within \CloseRad~rad on
 fewer than half the seeds at every shot count. Without noise, \BudgetRestarts{} restarts
 recovered it on most seeds, and we did not run \BudgetRestarts{} restarts under noise. At 4 qubits every circuit leaked on at least
 half the seeds at every shot count we tried.
@@ -604,8 +599,9 @@ From \BatchHeldMinRatio{} unknowns per effective parameter up, no batch was full
 every attack found a different batch that fit the gradient as well as the true one. Up to
 \BatchLeakMaxRatio, a larger batch left more 8-qubit attacks stuck at \Restarts{} restarts. Against
 a label-free attack, hiding binary labels lowered recovery (pooled exact McNemar
-$p \LabelPooledPAll$), almost entirely with two inputs per update and mostly on one circuit; an
-attacker that tries every labeling was not tested.
+$p \LabelPooledPAll$), \LabelKnownOnlyTwo{} of the \LabelKnownOnlyAll{} affected seeds in batches of
+two and \LabelKnownOnlyTop{} on one circuit. An attacker that tries every labeling can include the
+known-label attack for $2^B$ times the restarts.
 
 Training the client's circuit showed no overall change in recovery (pooled exact McNemar
 $p \TrainedPooledPAll$). The $1\times4$ circuits stayed mostly recoverable, and every failure was

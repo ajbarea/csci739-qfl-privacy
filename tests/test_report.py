@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from qflp import macros
-from qflp.figures import batch_table, label_table, trained_table
+from qflp.figures import batch_table, budget_table, label_table, trained_table
 from qflp.figures import main as figures_main
 from qflp.summarize import best_outcome, load
 
@@ -153,37 +153,90 @@ def _rescore(rows):
     return rows
 
 
-def _rate_mutant(d):
+def _key(r):
+    return (r["n_qubits"], r["reps"], r["layers"])
+
+
+def _miss_after(rows, circuit, start):
+    """Every restart of `circuit` from index `start` on misses the input."""
+    rows = copy.deepcopy(rows)
+    for r in rows:
+        if _key(r) == circuit:
+            for x in r["restarts_detail"][start:]:
+                x["error"] = 3.0
+    return rows
+
+
+def _rate_120(d):
     """Every restart of the 8-qubit 4 x 2 circuit misses, in RQ1 and in the budget rerun alike."""
-    rq1, budget = copy.deepcopy(d["rq1"]), copy.deepcopy(d["budget"])
+    rq1, budget = _miss_after(d["rq1"], (8, 4, 2), 0), _miss_after(d["budget"], (8, 4, 2), 0)
     for rows in (rq1, budget):
-        for r in rows:
-            if (r["n_qubits"], r["reps"], r["layers"]) == (8, 4, 2):
-                for x in r["restarts_detail"]:
-                    x["error"] = 3.0
-        _rescore([r for r in rows if (r["n_qubits"], r["reps"], r["layers"]) == (8, 4, 2)])
+        _rescore([r for r in rows if _key(r) == (8, 4, 2)])
     macros.budget_macros(budget, rq1)
 
 
-def _lead_mutant(d):
-    """Training leaves every curves D = 2 seed as it was at step 0."""
+def _first_seed_not_best(d):
+    """A restart that was not the best moves, so the best outcome stays."""
+    budget = copy.deepcopy(d["budget"])
+    r = next(r for r in budget if r["best_outcome"] == "stuck")
+    first = r["restarts_detail"][:10]
+    best = min(range(10), key=lambda i: first[i]["match"])
+    first[(best + 1) % 10]["error"] += 0.5
+    _budget(budget, d)
+
+
+def _rq1_outcome_flipped(d):
+    """RQ1's stored outcome for a budget seed differs from what its restarts give."""
+    rq1 = copy.deepcopy(d["rq1"])
+    r = next(r for r in rq1 if _key(r) == (8, 2, 1) and r["best_outcome"] == "stuck")
+    r["best_outcome"] = "recovered"
+    macros.budget_macros(d["budget"], rq1)
+
+
+def _swap(rows, field, a, b, keep=lambda r: False):
+    rows = copy.deepcopy(rows)
+    for r in rows:
+        if not keep(r) and r[field] in (a, b):
+            r[field] = b if r[field] == a else a
+    return rows
+
+
+def _trained_swap(d, tasks):
+    _trained(_swap(d["rq5"], "step", 0, 300, keep=lambda r: r["task"] not in tasks), d)
+
+
+def _linear_significant(d):
+    """Linear gains 8 seeds after training and loses none, as a significant but weaker shift."""
     rq5 = copy.deepcopy(d["rq5"])
     start = {(r["n_qubits"], r["reps"], r["layers"], r["seed"]): r["best_outcome"] for r in rq5
-             if r["task"] == "curves2" and r["step"] == 0}  # fmt: skip
+             if r["task"] == "linear" and r["step"] == 0}  # fmt: skip
+    gained = 0
     for r in rq5:
-        if r["task"] == "curves2":
-            r["best_outcome"] = start[(r["n_qubits"], r["reps"], r["layers"], r["seed"])]
+        if r["task"] == "linear" and r["step"] == 300:
+            was = start[(r["n_qubits"], r["reps"], r["layers"], r["seed"])]
+            if was == "stuck" and gained < 8:
+                r["best_outcome"], gained = "recovered", gained + 1
+            else:
+                r["best_outcome"] = was
     _trained(rq5, d)
 
 
-def _majority_unknown_stuck(d):
-    """Hiding the label leaves 15 seeds of the 4-qubit 1 x 2, B = 1 circuit stuck."""
-    rq4 = copy.deepcopy(d["rq4"])
-    hit = [r for r in rq4 if (r["n_qubits"], r["reps"], r["layers"], r["batch"], r["label"])
-           == (4, 1, 2, 1, "unknown") and r["best_outcome"] == "recovered"]  # fmt: skip
-    for r in hit[:15]:
-        r["best_outcome"] = "stuck"
-    _label(rq4, d)
+def _shrunk_gradient(d):
+    rq5 = copy.deepcopy(d["rq5"])
+    for r in rq5:
+        if r["step"] == 300:
+            r["grad_norm2"] *= 0.1
+    _trained(rq5, d)
+
+
+def _label_rows(d, setting, label, outcome_from, outcome_to, n):
+    rows = copy.deepcopy(d["rq4"])
+    hit = [r for r in rows if (*_key(r), r["batch"], r["label"]) == (*setting, label)
+           and r["best_outcome"] == outcome_from]  # fmt: skip
+    assert len(hit) >= n
+    for r in hit[:n]:
+        r["best_outcome"] = outcome_to
+    return rows
 
 
 def _significant_setting(d):
@@ -195,11 +248,78 @@ def _significant_setting(d):
     _label(rq4, d)
 
 
-def _match_differs(d):
+def _no_slope(d):
+    """No circuit's median error reaches CLOSE_RAD, while every other RQ2 claim still holds."""
+    rq2 = copy.deepcopy(d["rq2"])
+    for r in rq2:
+        far = r["n_qubits"] == 8 and (r["shots"] == 100 or r["reps"] == 4)
+        r["best_error"] = 0.5 if far or r["seed"] >= 10 else 0.1
+    _rq2(rq2, d)
+
+
+def _batch_stuck_falls(d):
+    """The 8-qubit 1 x 4 circuit is stuck on 9 seeds at B = 2, more than its 8 at B = 4."""
+    rows = copy.deepcopy(d["batch"])
+    hit = [r for r in rows if (*_key(r), r["batch"]) == (8, 1, 4, 2)
+           and r["best_outcome"] == "recovered"]  # fmt: skip
+    for r in hit[:8]:
+        r["best_outcome"] = "stuck"
+    _batch(rows, d)
+
+
+def _stuck_not_recovered(d):
+    """Six 2 x 1 seeds that 50 restarts recovered stay stuck instead."""
+    budget = copy.deepcopy(d["budget"])
+    hit = [r for r in budget if _key(r) == (8, 2, 1) and r["best_outcome"] == "recovered"
+           and best_outcome(r, 10) == "stuck"]  # fmt: skip
+    for r in hit[:6]:
+        r["best_outcome"] = "stuck"
+    _budget(budget, d)
+
+
+def _match_moved(d):
+    """One restart's matching loss differs from RQ1's, though its error does not."""
     budget = copy.deepcopy(d["budget"])
     budget[0]["restarts_detail"][3]["match"] *= 2
     _budget(budget, d)
 
+
+def _batch_two_sizes(d):
+    rows = _set(d["batch"], {"n_qubits": 8, "reps": 1, "layers": 4, "best_outcome": "stuck"}, True,
+                best_outcome="recovered")  # fmt: skip
+    rows = _set(rows, {"n_qubits": 4, "reps": 1, "layers": 2, "batch": 2}, best_outcome="stuck")
+    _batch(rows, d)
+
+
+def _batch_one_circuit(d):
+    rows = _set(d["batch"], {"n_qubits": 8, "reps": 1, "layers": 4, "best_outcome": "stuck"}, True,
+                best_outcome="recovered")  # fmt: skip
+    _batch(rows, d)
+
+
+def _budget_short(d):
+    rows = _set(d["budget"], {"reps": 2, "layers": 1}, restarts=10)
+    budget_table(rows, d["tmp"] / "budget.tex", (10, 50))
+
+
+def _lead_mutant(d):
+    """Training leaves every curves D = 2 seed as it was at step 0."""
+    rq5 = copy.deepcopy(d["rq5"])
+    start = {(*_key(r), r["seed"]): r["best_outcome"] for r in rq5
+             if r["task"] == "curves2" and r["step"] == 0}  # fmt: skip
+    for r in rq5:
+        if r["task"] == "curves2":
+            r["best_outcome"] = start[(*_key(r), r["seed"])]
+    _trained(rq5, d)
+
+
+def _majority_unknown_stuck(d):
+    """Hiding the label leaves 15 seeds of the 4-qubit 1 x 2, B = 1 circuit stuck."""
+    _label(_label_rows(d, (4, 1, 2, 1), "unknown", "recovered", "stuck", 15), d)
+
+
+S821 = {"n_qubits": 8, "reps": 2, "layers": 1}
+TOP4 = (8, 1, 2, 2)  # the RQ4 setting with most known-only seeds: 8 qubits, 1 x 2, B = 2
 
 # (case, data key, mutation, function, the claim its guard names)
 MUTANTS = [
@@ -216,18 +336,20 @@ MUTANTS = [
     ("monotone", "rq1", lambda r: _set(r, {"n_qubits": 8, "reps": 4, "layers": 2}, True,
      best_outcome="recovered"), _rq1, "never lowered"),
     ("rises", "rq1", lambda r: _set(r, {"n_qubits": 4, "reps": 2, "layers": 1,
-     "best_outcome": "stuck"}, True, best_outcome="recovered"), _rq1, "never lowered"),
+     "best_outcome": "stuck"}, True, best_outcome="recovered"), _rq1, "largest r was stuck"),
     ("size", "rq1", lambda r: _set(r, {"n_qubits": 8, "reps": 2, "layers": 2,
-     "best_outcome": "stuck"}, True, best_outcome="recovered"), _rq1, "more seeds"),
+     "best_outcome": "stuck"}, True, best_outcome="recovered"), _rq1, "more seeds at the larger"),
     ("deep-ambiguous", "rq1", lambda r: _set(r, {"reps": 2, "layers": 2,
-     "best_outcome": "recovered"}, best_outcome="ambiguous"), _rq1, "every failure was stuck"),
+     "best_outcome": "recovered"}, best_outcome="ambiguous"), _rq1, "ended ambiguous"),
     ("deep-close", "rq1", lambda r: _set(r, {"reps": 2, "layers": 2,
-     "best_outcome": "recovered"}, best_outcome="close"), _rq1, "every failure was stuck"),
+     "best_outcome": "recovered"}, best_outcome="close"), _rq1, "ended close"),
     ("shot-grid", "rq2", lambda r: _drop(r, {"shots": 100}), _rq2, "100 and 1000"),
     ("low-shot-private", "rq2", lambda r: _set(r, {"n_qubits": 8, "reps": 1, "layers": 4,
      "shots": 100}, True, best_error=0.01), _rq2, "every circuit was private"),
     ("small-leaked", "rq2", lambda r: _set(r, {"n_qubits": 4, "reps": 1, "layers": 4,
      "shots": 10**6}, True, best_error=1.0), _rq2, "at least half"),
+    ("private-at-1000", "rq2", lambda r: _set(r, {"n_qubits": 8, "shots": 1000}, True,
+     best_error=0.01), _rq2, "not empty"),
     ("wide-full", "rq2", lambda r: _set(_set(_set(r, {"n_qubits": 8, "reps": 1, "layers": 4,
      "shots": 10**4}, best_error=1.0), {"n_qubits": 8, "reps": 1, "layers": 4, "shots": 10**5},
      best_error=1.0), {"n_qubits": 8, "reps": 1, "layers": 4, "shots": 10**6}, best_error=1.0),
@@ -238,24 +360,36 @@ MUTANTS = [
      "shots": 10**5, "best_outcome": "stuck"}, best_outcome="ambiguous"), _rq2, "no ambiguous"),
     ("same-seeds", "rq2", lambda r: _set(r, {"n_qubits": 4, "reps": 4, "layers": 1,
      "shots": 1000, "best_outcome": "stuck"}, best_outcome="recovered"), _rq2, "same seeds"),
-    ("repeat-error", "budget", lambda r: _set(r, {"reps": 2, "layers": 1, "seed": 0},
-     restarts_detail=[{**x, "error": x["error"] + 0.5} for x in r[0]["restarts_detail"]]),
-     _budget, "repeat the RQ1 attack"),
     ("hardest-held", "budget", lambda r: _set(r, {"reps": 8, "layers": 1, "best_outcome":
      "stuck"}, True, best_outcome="recovered"), _budget, "hardest circuit held"),
-    ("most-stuck", "rq1", lambda r: _set(r, {"n_qubits": 8, "reps": 2, "layers": 2,
-     "best_outcome": "recovered"}, True, best_outcome="stuck"), _budget_rq1, "most stuck"),
+    ("rose", "budget", lambda r: _set(r, {"reps": 8, "layers": 1, "best_outcome": "recovered"},
+     True, best_outcome="stuck"), _budget, "rose with more restarts"),
+    ("rate-l1", "budget", lambda r: _miss_after(r, (8, 2, 1), 10), _budget, "along l = 1"),
+    ("most-stuck-set", "rq1", lambda r: _set(r, {"n_qubits": 8, "reps": 2, "layers": 2,
+     "best_outcome": "recovered"}, True, best_outcome="stuck"), _budget_rq1, "RQ1 circuits"),
     ("only-held", "rq1", lambda r: _set(r, {"n_qubits": 4, "reps": 8, "layers": 1,
      "best_outcome": "recovered"}, True, best_outcome="stuck"), _budget_rq1, "only r = l = 1"),
+    ("separate", "batch", lambda r: _set(r, {"n_qubits": 4, "reps": 1, "layers": 2, "batch": 8},
+     best_outcome="recovered"), _batch, "does not separate"),
     ("past-crossover", "batch", lambda r: _set(r, {"n_qubits": 4, "reps": 1, "layers": 4,
      "batch": 8}, best_outcome="stuck"), _batch, "every seed was ambiguous"),
-    ("below-crossover", "batch", lambda r: _set(r, {"n_qubits": 8, "reps": 1, "layers": 2,
-     "batch": 2, "best_outcome": "stuck"}, best_outcome="close"), _batch, "every failure"),
-    ("stuck-circuits", "batch", lambda r: _set(r, {"n_qubits": 4, "reps": 1, "layers": 2,
-     "batch": 2}, best_outcome="stuck"), _batch, "two circuits of one size"),
-    ("label-stuck", "rq4", lambda r: _set(r, {"n_qubits": 8, "reps": 1, "layers": 2, "batch": 2,
-     "label": "unknown", "best_outcome": "stuck"}, best_outcome="ambiguous"), _label,
-     "stuck, not ambiguous"),
+    ("below-close", "batch", lambda r: _set(r, {"n_qubits": 8, "reps": 1, "layers": 2,
+     "batch": 2, "best_outcome": "stuck"}, best_outcome="close"), _batch, "no failure was close"),
+    ("below-ambiguous", "batch", lambda r: _set(r, {"n_qubits": 8, "reps": 1, "layers": 2,
+     "batch": 2, "best_outcome": "stuck"}, best_outcome="ambiguous"), _batch,
+     "no failure was ambiguous"),
+    ("label-stuck-more", "rq4", lambda r: r, lambda m, d: _label(_label_rows(d, TOP4, "unknown",
+     "stuck", "recovered", 7), d), "more seeds stuck"),
+    ("label-ambiguous", "rq4", lambda r: _set(r, {"n_qubits": 8, "reps": 1, "layers": 2,
+     "batch": 2, "label": "unknown", "best_outcome": "stuck"}, best_outcome="ambiguous"), _label,
+     "were not ambiguous"),
+    ("label-close", "rq4", lambda r: _set(r, {"n_qubits": 8, "reps": 1, "layers": 2,
+     "batch": 2, "label": "unknown", "best_outcome": "stuck"}, best_outcome="close"), _label,
+     "were not close"),
+    ("label-direction", "rq4", lambda r: _swap(r, "label", "known", "unknown",
+     keep=lambda x: (*_key(x), x["batch"]) == TOP4), _label, "recovered fewer inputs"),
+    ("label-one-circuit", "rq4", lambda r: r, lambda m, d: _label(_label_rows(d, (8, 1, 4, 2),
+     "unknown", "recovered", "stuck", 6), d), "mostly on one circuit"),
     ("trained-outcomes", "rq5", lambda r: _set(r, {"step": 300}, best_outcome="close"), _trained,
      "recovered or stuck"),
     ("trained-shallow", "rq5", lambda r: _set(r, {"task": "linear", "n_qubits": 4, "reps": 1,
@@ -263,15 +397,22 @@ MUTANTS = [
 ]  # fmt: skip
 
 WHOLE = [
-    ("rate", _rate_mutant, "lower per-restart rate"),
-    ("rate-l1", lambda d: _budget(_rescore([{**r, "restarts_detail": [
-        {**x, "error": 0.0} if i >= 10 else x for i, x in enumerate(r["restarts_detail"])]}
-        if (r["reps"], r["layers"]) == (8, 1) else r for r in copy.deepcopy(d["budget"])]), d),
-     "lower per-restart rate"),
+    ("rate-120", _rate_120, "largest parameter count"),
+    ("repeat-error", _first_seed_not_best, r"\(error\)"),
+    ("repeat-count", _rq1_outcome_flipped, "reproduce the RQ1 count"),
+    ("most-stuck-recovered", _stuck_not_recovered, "were recovered with more restarts"),
+    ("repeat-match", _match_moved, r"\(match\)"),
     ("lead", _lead_mutant, "smallest per-task p"),
+    ("lead-direction", lambda d: _trained_swap(d, ("curves2",)), "fewer curves2"),
+    ("lead-others", _linear_significant, "other per-task tests"),
+    ("trained-overall", lambda d: _trained_swap(d, ("linear", "curves10")), "no overall change"),
+    ("trained-gradient", _shrunk_gradient, "shrink the median gradient"),
     ("label-batch", _majority_unknown_stuck, "largest batch"),
     ("label-significant", _significant_setting, "significant"),
-    ("repeat-match", _match_differs, "repeat the RQ1 attack"),
+    ("no-slope", _no_slope, "came within CLOSE_RAD at three"),
+    ("batch-stuck-falls", _batch_stuck_falls, "never lowered the stuck count"),
+    ("batch-two-sizes", _batch_two_sizes, "at one size"),
+    ("batch-one-circuit", _batch_one_circuit, "on two circuits"),
 ]  # fmt: skip
 
 
@@ -298,3 +439,8 @@ def test_each_guard_fires_on_its_mutant(data, case, key, mutate, fn, claim):
 def test_each_cross_file_guard_fires_on_its_mutant(data, case, run, claim):
     with pytest.raises(macros.ClaimError, match=claim):
         run(data)
+
+
+def test_budget_table_refuses_runs_shorter_than_the_budget(data):
+    with pytest.raises(ValueError, match="fewer restarts"):
+        _budget_short(data)
