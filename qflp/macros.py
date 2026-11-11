@@ -5,6 +5,7 @@ report/tables/numbers.tex. A claim the prose makes without a number ("no attack 
 ambiguous") is checked here and raises `ClaimError` once the results stop supporting it.
 """
 
+import itertools
 import json
 import math
 import re
@@ -143,6 +144,14 @@ def rq1_macros(rows: list[dict]) -> dict[str, str]:
         out[f"RecByReps{name}"] = _and(str(s["recovered"]) for _, s in line)
         out[f"ParamsTop{name}"] = str(_one((s["n_effective"] for _, s in line), "parameter count"))
 
+    for n in (small, large):
+        for product in {reps * layers for _, reps, layers in by if reps * layers > 1}:
+            line = [by[k]["stuck"] for k in sorted(by) if k[0] == n and k[1] * k[2] == product]
+            _require(
+                all(a <= b for a, b in itertools.pairwise(line)) and line[-1] > line[0],
+                "at a fixed product, more repetitions never lowered the stuck count and the "
+                "largest r was stuck more than r = 1",
+            )
     deep = [(reps, layers) for (n, reps, layers) in by if n == small and reps >= 2]
     _require(
         all(by[(large, *g)]["stuck"] > by[(small, *g)]["stuck"] for g in deep),
@@ -268,6 +277,24 @@ def budget_macros(rows: list[dict], rq1: list[dict]) -> dict[str, str]:
             "rate": sum(per) / len(per),
         }
     hardest = min(stats, key=lambda k: stats[k]["rate"])
+    rate = {k: s["rate"] for k, s in stats.items()}
+    _require(
+        rate[(8, 2, 1)] > rate[(8, 4, 1)] > rate[(8, 8, 1)] and rate[(8, 4, 2)] > rate[(8, 8, 1)],
+        "more repetitions gave a lower per-restart rate along l = 1 and at 120 parameters",
+    )
+    rq1_recovered: dict[tuple, int] = defaultdict(int)
+    for r in rq1:
+        rq1_recovered[(r["n_qubits"], r["reps"], r["layers"])] += r["best_outcome"] == "recovered"
+    leaked = [
+        k
+        for k, n_rec in rq1_recovered.items()
+        if 2 * n_rec > seeds or (k in stats and k != hardest and 2 * stats[k]["after"] > seeds)
+    ]
+    held = sorted(set(rq1_recovered) - set(leaked))
+    _require(
+        held == sorted([k for k in rq1_recovered if k[1] == k[2] == 1] + [hardest]),
+        "only r = l = 1 and the hardest budget circuit kept the input on most seeds",
+    )
     easiest = max(stats, key=lambda k: stats[k]["rate"])
     others = sorted(k for k in stats if k != hardest)
     _require(2 * stats[hardest]["after"] < seeds, "the hardest circuit held on most seeds")

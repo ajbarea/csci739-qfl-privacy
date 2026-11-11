@@ -269,6 +269,8 @@ def batch_table(rows: list[dict], out: Path) -> dict[str, str]:
     if max(ratio[id(s)] for s in leaked) >= min(ratio[id(s)] for s in held):
         raise ValueError("recovery does not separate on unknowns per effective parameter")
     errors = [s["median_error"] for s in summary if ratio[id(s)] > 1]
+    if any(s["ambiguous"] != s["seeds"] for s in summary if ratio[id(s)] > 1):
+        raise prose.ClaimError("past one unknown per parameter, every seed was ambiguous")
     below = [s for s in summary if ratio[id(s)] < 1 and s["recovered"] < s["seeds"]]
     if any(s["close"] or s["ambiguous"] for s in below):
         raise prose.ClaimError("below one unknown per parameter, every failure was stuck")

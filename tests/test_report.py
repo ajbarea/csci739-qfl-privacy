@@ -95,6 +95,10 @@ def test_rq1_guards_fire(rows):
         (_set(rq1, {"reps": 1, "layers": 4}, best_outcome="stuck"), "recovered"),
         (_set(rq1, {"reps": 1, "layers": 1}, best_match=1.0), "matched the gradient exactly"),
         (
+            _set(rq1, {"n_qubits": 8, "reps": 4, "layers": 2}, True, best_outcome="recovered"),
+            "never lowered",
+        ),
+        (
             _set(rq1, {"n_qubits": 8, "reps": 2, "layers": 2, "best_outcome": "stuck"},
                  every=True, best_outcome="recovered"),
             "more seeds",
@@ -124,3 +128,32 @@ def test_budget_guard_fires_when_the_first_restarts_differ_from_rq1(rows):
     mutant[0]["restarts_detail"][3]["error"] += 0.5
     with pytest.raises(macros.ClaimError, match="repeat the RQ1 attack"):
         macros.budget_macros(mutant, rq1)
+
+
+def test_budget_guard_fires_when_another_circuit_holds_most_seeds(rows):
+    rq1 = _set(rows["rq1"], {"n_qubits": 4, "reps": 8, "layers": 1, "best_outcome": "recovered"},
+               every=True, best_outcome="stuck")  # fmt: skip
+    with pytest.raises(macros.ClaimError, match="only r = l = 1"):
+        macros.budget_macros(rows["budget"], rq1)
+
+
+def test_batch_guard_fires_when_a_seed_past_the_crossover_is_not_ambiguous(rows, tmp_path):
+    from qflp.figures import batch_table
+
+    rq3 = load([RESULTS / "rq3.jsonl"])
+    circuits = {(r["n_qubits"], r["reps"], r["layers"]) for r in rq3}
+    batch = [r for r in rows["rq1"] if (r["n_qubits"], r["reps"], r["layers"]) in circuits] + rq3
+    batch_table(batch, tmp_path / "rq3.tex")
+    mutant = _set(batch, {"n_qubits": 4, "reps": 1, "layers": 4, "batch": 8}, best_outcome="stuck")
+    with pytest.raises(macros.ClaimError, match="every seed was ambiguous"):
+        batch_table(mutant, tmp_path / "rq3.tex")
+
+
+def test_budget_guard_fires_when_more_repetitions_raise_the_per_restart_rate(rows):
+    mutant = copy.deepcopy(rows["budget"])
+    for r in mutant:
+        if (r["reps"], r["layers"]) == (8, 1):
+            for d in r["restarts_detail"][10:]:
+                d["error"] = 0.0
+    with pytest.raises(macros.ClaimError, match="lower per-restart rate"):
+        macros.budget_macros(mutant, rows["rq1"])
