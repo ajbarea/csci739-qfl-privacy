@@ -13,3 +13,4 @@ COMMITS.md
 
 .claude/worktrees/
 !report/figures/*.pdf
+.dokimasia-cache.json

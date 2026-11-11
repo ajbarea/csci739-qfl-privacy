@@ -16,7 +16,7 @@ from qflp.attack import (
     classify,
     matching_loss,
 )
-from qflp.circuit import Circuit
+from qflp.circuit import REFERENCE_TOL, Circuit
 from qflp.noise import shot_gradient
 from qflp.rows import DEFAULTS, KEY, ROW_START, read_rows
 from qflp.summarize import load, table
@@ -54,7 +54,7 @@ def test_simulator_matches_pennylane(n, reps, layers):
     c = Circuit(n, reps, layers)
     x, th = random_point(c, n + reps + layers)
     ref = np.asarray(pennylane_reference(c)(x, th))
-    assert np.abs(ref - np.asarray(c.probs(jnp.asarray(x), jnp.asarray(th)))).max() < 1e-12
+    assert np.abs(ref - np.asarray(c.probs(jnp.asarray(x), jnp.asarray(th)))).max() < REFERENCE_TOL
 
 
 def test_gradient_matches_pennylane():
@@ -68,7 +68,7 @@ def test_gradient_matches_pennylane():
 
     ref = np.asarray(qml.grad(loss)(qml.numpy.array(th, requires_grad=True)))
     ours = np.asarray(c.grad(jnp.asarray(x), jnp.asarray(th), 1.0))
-    assert np.abs(ref - ours).max() < 1e-12
+    assert np.abs(ref - ours).max() < REFERENCE_TOL
 
 
 @pytest.mark.parametrize(("n", "reps", "layers"), [(4, 1, 1), (4, 4, 1), (8, 1, 2)])
@@ -347,8 +347,8 @@ def test_label_table_pools_discordant_seeds_per_batch(tmp_path):
     assert (macros["LabelKnownOnlyOne"], macros["LabelUnknownOnlyOne"]) == ("0", "0")
     assert macros["LabelPooledPTwo"] == "1.000"
     assert (macros["LabelKnownOnlyAll"], macros["LabelUnknownOnlyAll"]) == ("2", "1")
-    assert macros["LabelKnownOnlyTopTwo"] == "1"
-    assert macros["LabelTopCircuitTwo"] == "8-qubit $1\\times2$"
+    assert (macros["LabelTopBatch"], macros["LabelKnownOnlyTop"]) == ("2", "1")
+    assert macros["LabelTopCircuit"] == "8-qubit $1\\times2$"
     assert len((tmp_path / "rq4.tex").read_text().splitlines()) == 3
 
 

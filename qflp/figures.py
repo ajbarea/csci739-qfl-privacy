@@ -18,6 +18,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from qflp import macros as prose
 from qflp.summarize import CLOSE_RAD, best_outcome, load, outcomes, table
 
 # Okabe-Ito, checked for colour-vision deficiency; markers repeat the identity for print.
@@ -268,6 +269,16 @@ def batch_table(rows: list[dict], out: Path) -> dict[str, str]:
     if max(ratio[id(s)] for s in leaked) >= min(ratio[id(s)] for s in held):
         raise ValueError("recovery does not separate on unknowns per effective parameter")
     errors = [s["median_error"] for s in summary if ratio[id(s)] > 1]
+    below = [s for s in summary if ratio[id(s)] < 1 and s["recovered"] < s["seeds"]]
+    if any(s["close"] or s["ambiguous"] for s in below):
+        raise prose.ClaimError("below one unknown per parameter, every failure was stuck")
+    stuck = {}
+    for s in below:
+        circuit = (s["n_qubits"], s["reps"], s["layers"])
+        stuck[circuit] = max(stuck.get(circuit, s), s, key=lambda x: x["stuck"])
+    if len({n for n, _, _ in stuck}) != 1 or len(stuck) != 2:
+        raise prose.ClaimError("the stuck seeds below a ratio of 1 sit on two circuits of one size")
+    (shallow, deep) = (stuck[k] for k in sorted(stuck, key=lambda k: k[2]))
     lines = [
         f"{s['n_qubits']} & ${s['reps']}\\times{s['layers']}$ & {s['n_effective']} & "
         f"{s['batch']} & {s['n_qubits'] * s['batch']} & "
@@ -283,6 +294,13 @@ def batch_table(rows: list[dict], out: Path) -> dict[str, str]:
         "BatchFewestRecoveredBelow": str(min(s["recovered"] for s in summary if ratio[id(s)] < 1)),
         "BatchAmbigErrLow": f"{min(errors):.1f}",
         "BatchAmbigErrHigh": f"{max(errors):.1f}",
+        "BatchStuckQubits": str(shallow["n_qubits"]),
+        "BatchStuckShallowCircuit": f"${shallow['reps']}\\times{shallow['layers']}$",
+        "BatchStuckShallow": str(shallow["stuck"]),
+        "BatchStuckShallowAt": str(shallow["batch"]),
+        "BatchStuckDeepCircuit": f"${deep['reps']}\\times{deep['layers']}$",
+        "BatchStuckDeep": str(deep["stuck"]),
+        "BatchStuckDeepAt": str(deep["batch"]),
     }
 
 
@@ -310,20 +328,21 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     known and with it unknown on the same clients, and the exact McNemar p-value for recovery.
 
     Returns report macros for the same test pooled over every setting (the primary test) and, as
-    description, per batch size, with the largest single setting's share of the known-only seeds.
-    Clients are independent across settings, so their discordant pairs add."""
+    description, per batch size; for the batch size with the most known-only seeds, the single
+    setting with the largest share of them and its stuck counts. Clients are independent across
+    settings, so their discordant pairs add."""
     rows = [r for r in rows if r["shots"] == 0]
     setting = ("n_qubits", "reps", "layers", "batch", "restarts")
     summary = {(*(s[k] for k in setting), s["label"]): s for s in table(rows)}
     lines = []
     pooled: dict[int, list[int]] = defaultdict(lambda: [0, 0])
-    top: dict[int, tuple[int, str]] = defaultdict(lambda: (0, ""))
+    top: dict[int, tuple[int, str, tuple]] = defaultdict(lambda: (0, "", ()))
     for key, only in _discordant(rows, setting, "label", "known", "unknown").items():
         n, reps, layers, b, _ = key
         cells = [_outcome_cell(summary[(*key, label)]) for label in ("known", "unknown")]
         pooled[b][0] += only[0]
         pooled[b][1] += only[1]
-        top[b] = max(top[b], (only[0], f"{n}-qubit ${reps}\\times{layers}$"))
+        top[b] = max(top[b], (only[0], f"{n}-qubit ${reps}\\times{layers}$", key))
         lines.append(
             f"{n} & ${reps}\\times{layers}$ & {b} & {cells[0]} & {cells[1]} & "
             f"{mcnemar_exact(*only):.3f} \\\\"
@@ -342,13 +361,22 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
         macros[f"LabelKnownOnly{name}"] = str(known_only)
         macros[f"LabelUnknownOnly{name}"] = str(unknown_only)
         macros[f"LabelPooledP{name}"] = f"{mcnemar_exact(known_only, unknown_only):.3f}"
-        macros[f"LabelKnownOnlyTop{name}"] = str(top[b][0])
-        macros[f"LabelTopCircuit{name}"] = top[b][1]
+    b = max(pooled, key=lambda b: pooled[b][0])
+    known_only, circuit, key = top[b]
+    macros |= {
+        "LabelTopBatch": str(b),
+        "LabelKnownOnlyTop": str(known_only),
+        "LabelTopCircuit": circuit,
+        "LabelTopStuckKnown": str(summary[(*key, "known")]["stuck"]),
+        "LabelTopStuckUnknown": str(summary[(*key, "unknown")]["stuck"]),
+    }
     return macros
 
 
 TASK_LABEL = {"linear": "Linear", "curves2": "Curves, $D{=}2$", "curves10": "Curves, $D{=}10$"}
 TASK_MACRO = {"linear": "Linear", "curves2": "CurvesTwo", "curves10": "CurvesTen"}
+# The task the report discusses as the lead: the one whose recovery moved most with training.
+LEAD_TASK = "curves2"
 
 
 def _p_relation(p: float) -> str:
@@ -443,11 +471,21 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
         "TrainedShallowMinRecovered": str(min(shallow)),
         "TrainedNotStuck": str(sum(r["best_outcome"] not in ("recovered", "stuck") for r in rows)),
         "TrainedAttacks": str(len(rows)),
+        "TrainedSteps": prose._and(str(st) for st in steps),
+        "TrainedTasks": str(len(pooled)),
     }
+    p_task = {task: mcnemar_exact(*counts) for task, counts in pooled.items()}
     for task, (b, a) in pooled.items():
         macros[f"TrainedOnlyBefore{TASK_MACRO[task]}"] = str(b)
         macros[f"TrainedOnlyAfter{TASK_MACRO[task]}"] = str(a)
-        macros[f"TrainedPooledP{TASK_MACRO[task]}"] = _p_relation(mcnemar_exact(b, a))
+        macros[f"TrainedPooledP{TASK_MACRO[task]}"] = _p_relation(p_task[task])
+    # The report names one task as the lead; Bonferroni over the per-task tests, which are
+    # secondary to the pooled one.
+    if LEAD_TASK in p_task:
+        if min(p_task, key=lambda t: p_task[t]) != LEAD_TASK:
+            raise prose.ClaimError(f"{LEAD_TASK} has the smallest per-task p")
+        p_lead = min(1.0, len(p_task) * p_task[LEAD_TASK])
+        macros["TrainedLeadBonferroni"] = _p_relation(p_lead)
     return macros
 
 
@@ -466,34 +504,43 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--results", type=Path, default=Path("results"))
     ap.add_argument("--report", type=Path, default=Path("report"))
+    ap.add_argument("--spike", type=Path, default=Path("spike/results-2026-09-24.txt"))
     args = ap.parse_args(argv)
     rq1 = load([args.results / "rq1.jsonl"])
     rq2 = load([args.results / "rq2.jsonl"])
+    budget_rows = load([args.results / "budget.jsonl"])
+    files = {
+        "rq1": rq1,
+        "rq2": rq2,
+        "budget": budget_rows,
+        "rq3": load([args.results / "rq3.jsonl"]),
+        "rq4": load([args.results / "rq4.jsonl"]),
+    }
     privacy_map(rq1, args.report / "figures" / "privacy-map.pdf")
     outcome_table(rq1, args.report / "tables" / "rq1.tex")
     shot_noise(rq2, args.report / "figures" / "shot-noise.pdf")
     shots_table(rq2, args.report / "tables" / "rq2.tex")
-    budget = args.results / "budget.jsonl"
-    if budget.exists():
-        budget_table(load([budget]), args.report / "tables" / "budget.tex")
-    macros: dict[str, str] = {}
-    rq3 = args.results / "rq3.jsonl"
-    if rq3.exists():
-        # Batch 1 of the same circuits is already in RQ1.
-        circuits = {(r["n_qubits"], r["reps"], r["layers"]) for r in load([rq3])}
-        base = [r for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) in circuits]
-        batch = base + load([rq3])
-        batch_map(batch, args.report / "figures" / "batch.pdf")
-        macros.update(batch_table(batch, args.report / "tables" / "rq3.tex"))
-    rq4 = args.results / "rq4.jsonl"
-    if rq4.exists():
-        macros.update(label_table(load([rq4]), args.report / "tables" / "rq4.tex"))
-    rq5, training = args.results / "rq5.jsonl", args.results / "rq5-training.jsonl"
-    if rq5.exists():
-        baselines = [r for r in map(json.loads, training.read_text().splitlines()) if "model" in r]
-        trained = load([rq5])
-        trained_map(trained, args.report / "figures" / "trained.pdf")
-        macros.update(trained_table(trained, baselines, args.report / "tables" / "rq5.tex"))
+    budget_table(budget_rows, args.report / "tables" / "budget.tex")
+    macros: dict[str, str] = {
+        **prose.design_macros(),
+        **prose.count_macros(files),
+        **prose.rq1_macros(rq1),
+        **prose.rq2_macros(rq2, rq1),
+        **prose.budget_macros(budget_rows, rq1),
+        **prose.spike_macros(args.spike),
+        **prose.compile_macros(args.results / "compile-time.jsonl"),
+    }
+    # Batch 1 of the same circuits is already in RQ1.
+    circuits = {(r["n_qubits"], r["reps"], r["layers"]) for r in files["rq3"]}
+    batch = [r for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) in circuits] + files["rq3"]
+    batch_map(batch, args.report / "figures" / "batch.pdf")
+    macros.update(batch_table(batch, args.report / "tables" / "rq3.tex"))
+    macros.update(label_table(files["rq4"], args.report / "tables" / "rq4.tex"))
+    training = args.results / "rq5-training.jsonl"
+    baselines = [r for r in map(json.loads, training.read_text().splitlines()) if "model" in r]
+    trained = load([args.results / "rq5.jsonl"])
+    trained_map(trained, args.report / "figures" / "trained.pdf")
+    macros.update(trained_table(trained, baselines, args.report / "tables" / "rq5.tex"))
     write_macros(macros, args.report / "tables" / "numbers.tex")
 
 

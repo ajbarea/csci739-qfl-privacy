@@ -14,6 +14,10 @@ N_SAMPLES = 300
 TEST_SIZE = 0.2
 # task name -> two-curves Fourier degree; None is the linearly separable task.
 TASKS = {"linear": None, "curves2": 2, "curves10": 10}
+# Linearly separable: the margin around the hyperplane, per feature.
+MARGIN_PER_FEATURE = 0.02
+# Two curves: standard deviation of the noise added to each coordinate.
+CURVE_NOISE = 0.01
 
 
 def linearly_separable(n_samples: int, n_features: int, margin: float, rng: np.random.Generator):
@@ -60,9 +64,9 @@ def make_task(task: str, n_features: int, seed: int):
     rng = np.random.default_rng([seed, n_features, list(TASKS).index(task)])
     degree = TASKS[task]
     if degree is None:
-        x, y = linearly_separable(N_SAMPLES, n_features, 0.02 * n_features, rng)
+        x, y = linearly_separable(N_SAMPLES, n_features, MARGIN_PER_FEATURE * n_features, rng)
     else:
-        x, y = two_curves(N_SAMPLES, n_features, degree, 1 / (2 * degree), 0.01, rng)
+        x, y = two_curves(N_SAMPLES, n_features, degree, 1 / (2 * degree), CURVE_NOISE, rng)
     x_tr, x_te, y_tr, y_te = train_test_split(
         x, y, test_size=TEST_SIZE, random_state=int(rng.integers(2**31)), stratify=y
     )

@@ -11,7 +11,7 @@ this repo is public, the class repo is not.
 | | |
 |---|---|
 | Proposal | myCourses assignment, due 2026-10-09 23:59 (week 7). `proposal/proposal.tex`, built with `/graphe:latex` |
-| Report | LaTeX, methodology + findings (syllabus requirement). `report/report.tex` on the IEEE QCE template (`IEEEtran` conference; full paper 8-10 pages + 2 of references), built with `/graphe:latex` |
+| Report | LaTeX, methodology + findings (syllabus requirement). `report/report.tex`, `IEEEtran` conference layout; length is free (AJ 2026-11-10), the source declares its own budget. Built with `/graphe:latex` |
 | Talk | In class, weeks 12-14 |
 
 Grade weight: 25% of the course.
@@ -35,6 +35,11 @@ noise.
 - `uv run python -m qflp.sweep ... --out results/<name>.jsonl` appends one row per run and skips rows
   already present, so a killed sweep resumes. `python -m qflp.summarize results/*.jsonl` prints the
   outcome table. `results/` is the source of record; prose quotes it, never a console tail.
+- **No number in the report is typed by hand.** `uv run python -m qflp.figures` writes the tables
+  and `report/tables/numbers.tex` (prose macros, from `results/` and the constants in `qflp/`);
+  `qflp/macros.py` also asserts each unnumbered claim the prose makes. `tests/test_report.py` fails
+  when a committed table is stale or a macro is unused or undefined. After a sweep or a threshold
+  change, rerun `qflp.figures` and commit its output.
 - `--label fixed|known|unknown` (docstring of `qflp/sweep.py`): rows from before the label axis
   load as `fixed` through `qflp.rows.DEFAULTS`. A new row field needs a default there too.
 - **Qiskit Aer + `qiskit_ibm_runtime.fake_provider`** (`FakeKingston`, `FakeFez`, `FakeMarrakesh`)
