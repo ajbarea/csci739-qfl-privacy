@@ -190,15 +190,18 @@ def rq1_macros(rows: list[dict]) -> dict[str, str]:
     out["StuckFourOneSmall"] = str(by[(small, 4, 1)]["stuck"])
     out["StuckFourOneLarge"] = str(by[(large, 4, 1)]["stuck"])
     # The closest r >= 2 failure, as a multiple of the ambiguity slack.
-    closest = min(
-        r["best_match"] / r["grad_norm2"]
+    near = sorted(
+        (r["best_match"] / r["grad_norm2"] / attack.EXPLAINS_SLACK, r["best_error"])
         for r in rows
         if r["reps"] >= 2 and r["best_outcome"] != "recovered"
     )
-    out["StuckClosestSlack"] = f"{closest / attack.EXPLAINS_SLACK:.2f}"
+    out["StuckClosestSlack"] = f"{near[0][0]:.2f}"
     _require(
         out["StuckClosestSlack"] != "1.00", "the closest r >= 2 failure prints above the slack"
     )
+    _require(near[1][0] > 10, "only one r >= 2 failure lies within 10 times the slack")
+    out["StuckClosestErr"] = f"{near[0][1]:.2f}"
+    out["StuckNextSlack"] = f"{near[1][0]:.0f}"
 
     # Every restart's outcome, pooled over seeds, along each fixed-product line.
     hits: dict[tuple, int] = defaultdict(int)

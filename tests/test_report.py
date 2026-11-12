@@ -182,6 +182,15 @@ def _concordant(rows, plan):
     return rows
 
 
+def _second_near_slack(rows):
+    """A second r >= 2 stuck seed ends at 5 times the slack."""
+    rows = copy.deepcopy(rows)
+    near = sorted((r for r in rows if r["reps"] >= 2 and r["best_outcome"] == "stuck"),
+                  key=lambda r: r["best_match"] / r["grad_norm2"])  # fmt: skip
+    near[1]["best_match"] = 5e-6 * near[1]["grad_norm2"]
+    return rows
+
+
 def _grown_gradient(rows):
     rows = copy.deepcopy(rows)
     for r in rows:
@@ -488,6 +497,7 @@ MUTANTS = [
     ("trained-shallow-tie", "rq5", lambda r: _flip(r, {"task": "linear", "n_qubits": 4,
      "reps": 1, "step": 10}, "recovered", "stuck", 4), _trained, "one setting holds"),
     ("square-both-exact", "rq1", _square_other_inexact, _rq1, "also matched exactly"),
+    ("one-near-slack", "rq1", _second_near_slack, _rq1, "only one r >= 2 failure"),
     ("restart-rate", "rq1", _restarts_all_found, _rq1, "per-restart success"),
     ("closest-slack", "rq1", lambda r: _set(r, {"n_qubits": 8, "reps": 2, "layers": 1,
      "best_outcome": "stuck"}, best_match=1.001e-6 * _first(r, {"n_qubits": 8, "reps": 2,
