@@ -16,7 +16,7 @@ from qflp.attack import (
     classify,
     matching_loss,
 )
-from qflp.circuit import Circuit
+from qflp.circuit import REFERENCE_TOL, Circuit
 from qflp.noise import shot_gradient
 from qflp.rows import DEFAULTS, KEY, ROW_START, read_rows
 from qflp.summarize import load, table
@@ -54,7 +54,7 @@ def test_simulator_matches_pennylane(n, reps, layers):
     c = Circuit(n, reps, layers)
     x, th = random_point(c, n + reps + layers)
     ref = np.asarray(pennylane_reference(c)(x, th))
-    assert np.abs(ref - np.asarray(c.probs(jnp.asarray(x), jnp.asarray(th)))).max() < 1e-12
+    assert np.abs(ref - np.asarray(c.probs(jnp.asarray(x), jnp.asarray(th)))).max() < REFERENCE_TOL
 
 
 def test_gradient_matches_pennylane():
@@ -68,7 +68,7 @@ def test_gradient_matches_pennylane():
 
     ref = np.asarray(qml.grad(loss)(qml.numpy.array(th, requires_grad=True)))
     ours = np.asarray(c.grad(jnp.asarray(x), jnp.asarray(th), 1.0))
-    assert np.abs(ref - ours).max() < 1e-12
+    assert np.abs(ref - ours).max() < REFERENCE_TOL
 
 
 @pytest.mark.parametrize(("n", "reps", "layers"), [(4, 1, 1), (4, 4, 1), (8, 1, 2)])
@@ -334,21 +334,20 @@ def test_label_table_pools_discordant_seeds_per_batch(tmp_path):
             else "stuck", "any_recovered": ok, "best_error": 0.0 if ok else 2.0,
         }  # fmt: skip
 
-    # Circuit 4q: seed 0 recovered only with the label. Circuit 8q: seed 0 only with, seed 1 only
-    # without. Batch 1 agrees everywhere.
+    # Circuit 4q: seed 0 recovered only with the label. Circuit 8q: seeds 0-4 only with it. Batch 1
+    # agrees everywhere.
     rows = [
         row(4, 2, "known", 0, True), row(4, 2, "unknown", 0, False),
-        row(8, 2, "known", 0, True), row(8, 2, "unknown", 0, False),
-        row(8, 2, "known", 1, False), row(8, 2, "unknown", 1, True),
+        *(row(8, 2, lab, s, lab == "known") for s in range(5) for lab in ("known", "unknown")),
         row(4, 1, "known", 0, True), row(4, 1, "unknown", 0, True),
     ]  # fmt: skip
     macros = label_table(rows, tmp_path / "rq4.tex")
-    assert (macros["LabelKnownOnlyTwo"], macros["LabelUnknownOnlyTwo"]) == ("2", "1")
+    assert (macros["LabelKnownOnlyTwo"], macros["LabelUnknownOnlyTwo"]) == ("6", "0")
     assert (macros["LabelKnownOnlyOne"], macros["LabelUnknownOnlyOne"]) == ("0", "0")
-    assert macros["LabelPooledPTwo"] == "1.000"
-    assert (macros["LabelKnownOnlyAll"], macros["LabelUnknownOnlyAll"]) == ("2", "1")
-    assert macros["LabelKnownOnlyTopTwo"] == "1"
-    assert macros["LabelTopCircuitTwo"] == "8-qubit $1\\times2$"
+    assert macros["LabelPooledPTwo"] == "= 0.031"
+    assert (macros["LabelKnownOnlyAll"], macros["LabelUnknownOnlyAll"]) == ("6", "0")
+    assert (macros["LabelTopBatch"], macros["LabelKnownOnlyTop"]) == ("2", "5")
+    assert macros["LabelTopCircuit"] == "8-qubit $1\\times2$"
     assert len((tmp_path / "rq4.tex").read_text().splitlines()) == 3
 
 
@@ -416,14 +415,17 @@ def test_trained_table_pairs_seeds_across_the_first_and_last_step(tmp_path):
             "grad_norm2": g,
         }  # fmt: skip
 
-    # Seed 0 recovered only before training, seed 1 only after; gradients shrink 4x and 2x.
-    rows = [row(0, 0, True, 4.0), row(300, 0, False, 1.0), row(0, 1, False, 2.0),
-            row(300, 1, True, 1.0), row(10, 0, True, 3.0), row(10, 1, True, 1.5)]  # fmt: skip
+    # Seed 0 recovered only before training, seed 1 only after, seeds 2-4 at both ends and step 10
+    # alone holds the fewest recoveries (3 of 5); gradients grow 4x, 2x, 3x, 1x and 5x.
+    rows = [row(0, 0, True, 1.0), row(300, 0, False, 4.0), row(0, 1, False, 1.0),
+            row(300, 1, True, 2.0), row(10, 0, False, 3.0), row(10, 1, False, 1.5)]  # fmt: skip
+    rows += [row(st, s, True, g) for s, g in ((2, 3.0), (3, 1.0), (4, 5.0))
+             for st, g in ((0, 1.0), (10, 1.0), (300, g))]  # fmt: skip
     base = [{"task": "linear", "n_qubits": 4, "model": "logistic", "test_acc": 1.0}]
     macros = trained_table(rows, base, tmp_path / "rq5.tex")
     assert (macros["TrainedOnlyBeforeAll"], macros["TrainedOnlyAfterAll"]) == ("1", "1")
     assert macros["TrainedFinalStep"] == "300"
-    assert macros["TrainedGradRatioMedian"] == "0.38"
+    assert macros["TrainedGradRatioMedian"] == "3.00"
     (line,) = (tmp_path / "rq5.tex").read_text().splitlines()
     assert line.count("/") == 9 and "0.90 (1.00)" in line
 

@@ -15,6 +15,9 @@ import numpy as np
 
 jax.config.update("jax_enable_x64", True)
 
+# Largest difference from PennyLane default.qubit the tests allow, in probabilities and gradients.
+REFERENCE_TOL = 1e-12
+
 
 def _apply_1q(psi, mats, n):
     """Apply one 2x2 matrix per qubit; `mats` has shape (n, 2, 2)."""

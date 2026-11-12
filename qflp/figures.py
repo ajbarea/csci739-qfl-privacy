@@ -7,6 +7,7 @@ them is typed by hand.
 """
 
 import argparse
+import itertools
 import json
 import math
 import statistics
@@ -18,7 +19,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from qflp.summarize import CLOSE_RAD, best_outcome, load, outcomes, table
+from qflp import macros as prose
+from qflp.summarize import CLOSE_RAD, load, table
 
 # Okabe-Ito, checked for colour-vision deficiency; markers repeat the identity for print.
 STYLE = [("#0072B2", "o"), ("#D55E00", "s"), ("#009E73", "^")]
@@ -67,7 +69,7 @@ def _recovered_with_interval(flags: list[bool]) -> tuple[float, float, float]:
     return k / m, k / m - lo, hi - k / m
 
 
-def privacy_map(rows: list[dict], out: Path, restarts: int = 10) -> None:
+def privacy_map(rows: list[dict], out: Path, restarts: int) -> None:
     """Recovered fraction against encoding reps, one line per fixed reps x layers product."""
     exact = [r for r in rows if r["shots"] == 0 and r["batch"] == 1 and r["restarts"] == restarts]
     qubits = sorted({r["n_qubits"] for r in exact})
@@ -103,7 +105,7 @@ def privacy_map(rows: list[dict], out: Path, restarts: int = 10) -> None:
             )
         ax.set_xscale("log", base=2)
         ax.set_xticks([1, 2, 4, 8], labels=["1", "2", "4", "8"])
-        ax.set_xlabel("encoding repetitions $r$ (layers $= $ product$/r$)")
+        ax.set_xlabel(r"encoding repetitions $r$ ($r\ell$ fixed per line)")
         ax.set_title(f"{n} qubits", fontsize=10)
         ax.set_ylim(-0.03, 1.03)
         _tidy(ax)
@@ -180,39 +182,34 @@ def shots_table(rows: list[dict], out: Path) -> None:
     out.write_text("\n".join(lines) + "\n")
 
 
-def budget_table(rows: list[dict], out: Path, budgets: tuple[int, ...] = (10, 50)) -> None:
+def budget_table(rows: list[dict], out: Path, budgets: tuple[int, int]) -> None:
     """LaTeX rows: qubits, reps x layers, effective params, seeds recovered within each restart
     budget, and the fraction of all restarts that recover the input."""
-    groups: dict[tuple, list[dict]] = defaultdict(list)
-    for r in rows:
-        if r["shots"] == 0 and r["batch"] == 1:
-            groups[(r["n_qubits"], r["reps"], r["layers"])].append(r)
+    small, large = budgets
+    rows = [r for r in rows if r["shots"] == 0 and r["batch"] == 1]
+    if min(r["restarts"] for r in rows) < large:
+        raise ValueError(f"a budget run has fewer restarts than the {large} budget")
     lines = []
-    for (n, reps, layers), rs in sorted(groups.items()):
-        if min(r["restarts"] for r in rs) < max(budgets):
-            raise ValueError(f"{n}q {reps}x{layers}: fewer restarts than the {max(budgets)} budget")
-        within = [sum(best_outcome(r, b) == "recovered" for r in rs) for b in budgets]
-        per = [o == "recovered" for r in rs for o in outcomes(r)]
-        cells = " & ".join(f"{w}/{len(rs)}" for w in within)
+    for (n, reps, layers), s in prose.budget_stats(rows, small).items():
         lines.append(
-            f"{n} & ${reps}\\times{layers}$ & {rs[0]['n_effective']} & {cells} & "
-            f"{100 * sum(per) / len(per):.1f}\\% \\\\"
+            f"{n} & ${reps}\\times{layers}$ & {s['n_effective']} & {s['before']}/{s['seeds']} & "
+            f"{s['after']}/{s['seeds']} & {100 * s['rate']:.1f}\\% \\\\"
         )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n")
 
 
-def _exact_fixed(rows: list[dict], restarts: int = 10) -> list[dict]:
+def _exact_fixed(rows: list[dict], restarts: int) -> list[dict]:
     return [
         r for r in rows if r["shots"] == 0 and r["label"] == "fixed" and r["restarts"] == restarts
     ]
 
 
-def batch_map(rows: list[dict], out: Path) -> None:
+def batch_map(rows: list[dict], out: Path, restarts: int) -> None:
     """Recovered fraction against unknowns per effective parameter (N·B / P_eff), one line per
     circuit, so circuits of different size share the point where the inputs outnumber the
     equations."""
-    rows = _exact_fixed(rows)
+    rows = _exact_fixed(rows, restarts)
     qubits = sorted({r["n_qubits"] for r in rows})
     fig, axes = plt.subplots(1, len(qubits), figsize=(3.5 * len(qubits), 2.9), sharey=True)
     axes = [axes] if len(qubits) == 1 else list(axes)
@@ -254,20 +251,43 @@ def batch_map(rows: list[dict], out: Path) -> None:
     _save(fig, out)
 
 
-def batch_table(rows: list[dict], out: Path) -> dict[str, str]:
+def batch_table(rows: list[dict], out: Path, restarts: int) -> dict[str, str]:
     """LaTeX rows: qubits, reps x layers, effective params, batch, unknowns, four outcome counts,
     and the median error of the worst-matched input.
 
     Returns report macros: the largest unknowns-per-parameter ratio with any recovery, the
     smallest with none, the fewest seeds recovered below a ratio of 1, and the range of median
     errors among settings past it."""
-    summary = table(_exact_fixed(rows))
+    summary = table(_exact_fixed(rows, restarts))
     ratio = {id(s): s["n_qubits"] * s["batch"] / s["n_effective"] for s in summary}
     leaked = [s for s in summary if s["recovered"] > 0]
     held = [s for s in summary if s["recovered"] == 0]
     if max(ratio[id(s)] for s in leaked) >= min(ratio[id(s)] for s in held):
-        raise ValueError("recovery does not separate on unknowns per effective parameter")
+        raise prose.ClaimError("recovery does not separate on unknowns per effective parameter")
+    if not max(ratio[id(s)] for s in leaked) < 1 < min(ratio[id(s)] for s in held):
+        raise prose.ClaimError("the grid brackets one unknown per effective parameter")
     errors = [s["median_error"] for s in summary if ratio[id(s)] > 1]
+    if any(s["ambiguous"] != s["seeds"] for s in summary if ratio[id(s)] > 1):
+        raise prose.ClaimError("past one unknown per parameter, every seed was ambiguous")
+    below = [s for s in summary if ratio[id(s)] < 1 and s["recovered"] < s["seeds"]]
+    if any(s["close"] for s in below):
+        raise prose.ClaimError("below one unknown per parameter, no failure was close")
+    if any(s["ambiguous"] for s in below):
+        raise prose.ClaimError("below one unknown per parameter, no failure was ambiguous")
+    stuck = {}
+    for s in below:
+        circuit = (s["n_qubits"], s["reps"], s["layers"])
+        stuck[circuit] = max(stuck.get(circuit, s), s, key=lambda x: x["stuck"])
+    if len({n for n, _, _ in stuck}) != 1:
+        raise prose.ClaimError("the stuck seeds below a ratio of 1 sit at one size")
+    if len(stuck) != 2:
+        raise prose.ClaimError("the stuck seeds below a ratio of 1 sit on two circuits")
+    for circuit in stuck:
+        mine = [s for s in summary if (s["n_qubits"], s["reps"], s["layers"]) == circuit]
+        line = [s["stuck"] for s in sorted(mine, key=lambda s: s["batch"]) if ratio[id(s)] < 1]
+        if any(a >= b for a, b in itertools.pairwise(line)):
+            raise prose.ClaimError("below a ratio of 1, a larger batch left more seeds stuck")
+    (shallow, deep) = (stuck[k] for k in sorted(stuck, key=lambda k: k[2]))
     lines = [
         f"{s['n_qubits']} & ${s['reps']}\\times{s['layers']}$ & {s['n_effective']} & "
         f"{s['batch']} & {s['n_qubits'] * s['batch']} & "
@@ -281,8 +301,15 @@ def batch_table(rows: list[dict], out: Path) -> dict[str, str]:
         "BatchLeakMaxRatio": f"{max(ratio[id(s)] for s in leaked):.2f}",
         "BatchHeldMinRatio": f"{min(ratio[id(s)] for s in held):.2f}",
         "BatchFewestRecoveredBelow": str(min(s["recovered"] for s in summary if ratio[id(s)] < 1)),
-        "BatchAmbigErrLow": f"{min(errors):.1f}",
-        "BatchAmbigErrHigh": f"{max(errors):.1f}",
+        "BatchAmbigErrLow": f"{min(errors):.2f}",
+        "BatchAmbigErrHigh": f"{max(errors):.2f}",
+        "BatchStuckQubits": str(shallow["n_qubits"]),
+        "BatchStuckShallowCircuit": f"${shallow['reps']}\\times{shallow['layers']}$",
+        "BatchStuckShallow": str(shallow["stuck"]),
+        "BatchStuckShallowAt": str(shallow["batch"]),
+        "BatchStuckDeepCircuit": f"${deep['reps']}\\times{deep['layers']}$",
+        "BatchStuckDeep": str(deep["stuck"]),
+        "BatchStuckDeepAt": str(deep["batch"]),
     }
 
 
@@ -310,20 +337,23 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     known and with it unknown on the same clients, and the exact McNemar p-value for recovery.
 
     Returns report macros for the same test pooled over every setting (the primary test) and, as
-    description, per batch size, with the largest single setting's share of the known-only seeds.
-    Clients are independent across settings, so their discordant pairs add."""
+    description, per batch size; for the batch size with the most known-only seeds, the single
+    setting with the largest share of them and its stuck counts. Clients are independent across
+    settings, so their discordant pairs add."""
     rows = [r for r in rows if r["shots"] == 0]
     setting = ("n_qubits", "reps", "layers", "batch", "restarts")
     summary = {(*(s[k] for k in setting), s["label"]): s for s in table(rows)}
     lines = []
     pooled: dict[int, list[int]] = defaultdict(lambda: [0, 0])
-    top: dict[int, tuple[int, str]] = defaultdict(lambda: (0, ""))
+    p_setting = []
+    top: dict[int, tuple[int, str, tuple]] = defaultdict(lambda: (0, "", ()))
     for key, only in _discordant(rows, setting, "label", "known", "unknown").items():
         n, reps, layers, b, _ = key
         cells = [_outcome_cell(summary[(*key, label)]) for label in ("known", "unknown")]
         pooled[b][0] += only[0]
         pooled[b][1] += only[1]
-        top[b] = max(top[b], (only[0], f"{n}-qubit ${reps}\\times{layers}$"))
+        top[b] = max(top[b], (only[0], f"{n}-qubit ${reps}\\times{layers}$", key))
+        p_setting.append(mcnemar_exact(*only))
         lines.append(
             f"{n} & ${reps}\\times{layers}$ & {b} & {cells[0]} & {cells[1]} & "
             f"{mcnemar_exact(*only):.3f} \\\\"
@@ -335,25 +365,62 @@ def label_table(rows: list[dict], out: Path) -> dict[str, str]:
     macros = {
         "LabelKnownOnlyAll": str(known_all),
         "LabelUnknownOnlyAll": str(unknown_all),
-        "LabelPooledPAll": f"{mcnemar_exact(known_all, unknown_all):.3f}",
+        "LabelPooledPAll": _p_relation(mcnemar_exact(known_all, unknown_all)),
     }
     for b, (known_only, unknown_only) in sorted(pooled.items()):
         name = _batch_name(b)
         macros[f"LabelKnownOnly{name}"] = str(known_only)
         macros[f"LabelUnknownOnly{name}"] = str(unknown_only)
-        macros[f"LabelPooledP{name}"] = f"{mcnemar_exact(known_only, unknown_only):.3f}"
-        macros[f"LabelKnownOnlyTop{name}"] = str(top[b][0])
-        macros[f"LabelTopCircuit{name}"] = top[b][1]
+        macros[f"LabelPooledP{name}"] = _p_relation(mcnemar_exact(known_only, unknown_only))
+    b = max(pooled, key=lambda b: pooled[b][0])
+    known_only, circuit, key = top[b]
+    unknown = summary[(*key, "unknown")]
+    known_on_top = summary[(*key, "known")]
+    if known_all <= unknown_all:
+        raise prose.ClaimError("the label-free attack recovered fewer inputs")
+    if mcnemar_exact(known_all, unknown_all) >= 0.05:
+        raise prose.ClaimError("the pooled label test is significant (p < 0.05)")
+    if unknown["stuck"] <= known_on_top["stuck"]:
+        raise prose.ClaimError("hiding the label left more seeds stuck on that circuit")
+    if b != max(pooled):
+        raise prose.ClaimError("the label difference sits at the largest batch")
+    if 2 * known_only <= pooled[b][0]:
+        raise prose.ClaimError("the label difference sits mostly on one circuit")
+    if unknown["ambiguous"]:
+        raise prose.ClaimError("the label-free failures on that circuit were not ambiguous")
+    if unknown["close"]:
+        raise prose.ClaimError("the label-free failures on that circuit were not close")
+    if min(p_setting) < 0.05:
+        raise prose.ClaimError("no single setting's difference is significant")
+    macros |= {
+        "LabelTopBatch": str(b),
+        "LabelKnownOnlyTop": str(known_only),
+        "LabelTopCircuit": circuit,
+        "LabelTopStuckKnown": str(summary[(*key, "known")]["stuck"]),
+        "LabelTopStuckUnknown": str(summary[(*key, "unknown")]["stuck"]),
+    }
     return macros
 
 
 TASK_LABEL = {"linear": "Linear", "curves2": "Curves, $D{=}2$", "curves10": "Curves, $D{=}10$"}
 TASK_MACRO = {"linear": "Linear", "curves2": "CurvesTwo", "curves10": "CurvesTen"}
+TASK_PROSE = {"linear": "the linear task", "curves2": "curves with $D = 2$",
+              "curves10": "curves with $D = 10$"}  # fmt: skip
+# The task the report discusses as the lead: the one with the smallest per-task p.
+LEAD_TASK = "curves2"
 
 
 def _p_relation(p: float) -> str:
-    """A p-value as math text that follows `$p$`: `= 0.627`, or `< 0.001` when it rounds to zero."""
-    return f"= {p:.3f}" if p >= 0.0005 else "< 0.001"
+    """A p-value as math text that follows `$p$`: `= 0.627`, two significant figures below 0.01
+    (`= 0.0015`), `< 0.001` below 0.0005, and `< 0.05` where three decimals would round a p below
+    0.05 up to 0.050."""
+    if p < 0.0005:
+        return "< 0.001"
+    if p < 0.01:
+        return f"= {p:.2g}"
+    if p < 0.05 <= round(p, 3):
+        return "< 0.05"
+    return f"= {p:.3f}"
 
 
 def trained_map(rows: list[dict], out: Path) -> None:
@@ -411,18 +478,25 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
     logistic = {(b["task"], b["n_qubits"]): b["test_acc"] for b in baselines}
     order = {t: i for i, t in enumerate(TASK_LABEL)}
     lines = []
+    gap: dict[tuple, float] = {}
+    accs: dict[str, list[float]] = defaultdict(list)
     pooled: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    fit: dict[tuple, float] = {}
+    final_acc: dict[tuple, list[float]] = defaultdict(list)
+    for r in rows:
+        if r["step"] == last:
+            final_acc[tuple(r[k] for k in setting)].append(r["test_acc"])
     discordant = _discordant(rows, setting, "step", first, last)
     for key in sorted(discordant, key=lambda k: (order[k[0]], *k[1:])):
         task, n, reps, layers = key
-        acc = statistics.median(
-            r["test_acc"] for r in rows if (*(r[k] for k in setting), r["step"]) == (*key, last)
-        )
+        acc = fit[key] = statistics.median(final_acc[key])
         cells = " & ".join(_outcome_cell(summary[(*key, st)]) for st in steps)
         lines.append(
             f"{TASK_LABEL[task]} & {n} & ${reps}\\times{layers}$ & "
             f"{acc:.2f} ({logistic[(task, n)]:.2f}) & {cells} \\\\"
         )
+        gap[key] = logistic[(task, n)] - acc
+        accs[task] += [acc, logistic[(task, n)]]
         pooled[task][0] += discordant[key][0]
         pooled[task][1] += discordant[key][1]
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -430,25 +504,109 @@ def trained_table(rows: list[dict], baselines: list[dict], out: Path) -> dict[st
     before = sum(a for a, _ in pooled.values())
     after = sum(b for _, b in pooled.values())
     by_seed = {(*(r[k] for k in setting), r["seed"], r["step"]): r["grad_norm2"] for r in rows}
-    ratios = [
-        by_seed[(*k[:-1], last)] / by_seed[(*k[:-1], first)] for k in by_seed if k[-1] == first
-    ]
-    shallow = [s["recovered"] for s in summary.values() if s["reps"] == 1]
+    task_ratios: dict[str, list[float]] = defaultdict(list)
+    for k in by_seed:
+        if k[-1] == first:
+            ratio = by_seed[(*k[:-1], last)] / by_seed[k]
+            task_ratios[k[0]].append(ratio)
+    ratios = [x for v in task_ratios.values() for x in v]
+    task_ratio = {t: statistics.median(v) for t, v in task_ratios.items()}
+    shallow = {k: s["recovered"] for k, s in summary.items() if s["reps"] == 1}
+    if any(k[3] != 4 for k in shallow):
+        raise prose.ClaimError("every 1 x l setting is 1 x 4")
+    lowest = min(shallow, key=lambda k: shallow[k])
+    seeds = max(s["seeds"] for s in summary.values())
+    if 2 * shallow[lowest] <= seeds:
+        raise prose.ClaimError("every 1 x l setting was recovered on most seeds at every step")
+    if sum(v == shallow[lowest] for v in shallow.values()) > 1:
+        raise prose.ClaimError("one setting holds the fewest 1 x l recoveries")
+    worst = max(gap, key=lambda k: gap[k])
+    if any(r["best_outcome"] not in ("recovered", "stuck") for r in rows):
+        raise prose.ClaimError("every trained attack ended recovered or stuck")
     macros = {
         "TrainedOnlyBeforeAll": str(before),
         "TrainedOnlyAfterAll": str(after),
         "TrainedPooledPAll": _p_relation(mcnemar_exact(before, after)),
         "TrainedFinalStep": str(last),
         "TrainedGradRatioMedian": f"{statistics.median(ratios):.2f}",
-        "TrainedShallowMinRecovered": str(min(shallow)),
-        "TrainedNotStuck": str(sum(r["best_outcome"] not in ("recovered", "stuck") for r in rows)),
+        "TrainedShallowMinRecovered": str(shallow[lowest]),
         "TrainedAttacks": str(len(rows)),
+        "TrainedSteps": prose._and(str(st) for st in steps),
+        "TrainedTasks": str(len(pooled)),
+        "TrainedWorstGap": f"{gap[worst]:.2f}",
+        "TrainedWorstCircuit": f"{worst[1]}-qubit ${worst[2]}\\times{worst[3]}$",
+        "TrainedWorstTask": TASK_PROSE[worst[0]],
+        "TrainedTenAccLow": f"{min(accs['curves10'], default=0):.2f}",
+        "TrainedTenAccHigh": f"{max(accs['curves10'], default=0):.2f}",
     }
+    p_task = {task: mcnemar_exact(*counts) for task, counts in pooled.items()}
     for task, (b, a) in pooled.items():
         macros[f"TrainedOnlyBefore{TASK_MACRO[task]}"] = str(b)
         macros[f"TrainedOnlyAfter{TASK_MACRO[task]}"] = str(a)
-        macros[f"TrainedPooledP{TASK_MACRO[task]}"] = _p_relation(mcnemar_exact(b, a))
+        macros[f"TrainedPooledP{TASK_MACRO[task]}"] = _p_relation(p_task[task])
+        macros[f"TrainedGradRatio{TASK_MACRO[task]}"] = f"{task_ratio[task]:.2f}"
+    # The report names one task as the lead; Bonferroni over the per-task tests, which are
+    # secondary to the pooled one.
+    if LEAD_TASK in p_task:
+        if min(p_task, key=lambda t: p_task[t]) != LEAD_TASK:
+            raise prose.ClaimError(f"{LEAD_TASK} has the smallest per-task p")
+        if pooled[LEAD_TASK][0] <= pooled[LEAD_TASK][1]:
+            raise prose.ClaimError(f"fewer {LEAD_TASK} seeds were recovered after training")
+        if any(p < 0.05 for t, p in p_task.items() if t != LEAD_TASK):
+            raise prose.ClaimError("the other per-task tests are not significant")
+        p_lead = min(1.0, len(p_task) * p_task[LEAD_TASK])
+        macros["TrainedLeadBonferroni"] = _p_relation(p_lead)
+        if lowest[0] != LEAD_TASK:
+            raise prose.ClaimError(f"the fewest 1 x l recoveries are on {LEAD_TASK}")
+        lead_fit = min(v for k, v in fit.items() if k[0] == LEAD_TASK)
+        if any(v >= lead_fit for k, v in fit.items() if k[0] != LEAD_TASK):
+            raise prose.ClaimError(f"every circuit fit {LEAD_TASK} better than any other task")
+        macros["TrainedLeadAccLow"] = f"{lead_fit:.2f}"
+    if mcnemar_exact(before, after) < 0.05:
+        raise prose.ClaimError("training showed no overall change in recovery (pooled p >= 0.05)")
+    if len(pooled) > 1 and not any(b < a for b, a in pooled.values()):
+        raise prose.ClaimError("the tasks leaned opposite ways")
+    if any(v < 1 for v in task_ratio.values()):
+        raise prose.ClaimError("training did not shrink the median gradient on any task")
     return macros
+
+
+def trained_cells(rows: list[dict]) -> dict[str, str]:
+    """RQ5 macros per setting: where the median seed's gradient shrank from the first step to the
+    last, and the cells of the deepest-encoding circuit at the larger size recovered on fewer than
+    half the seeds (attacked at the base restart count only)."""
+    setting = ("task", "n_qubits", "reps", "layers")
+    steps = sorted({r["step"] for r in rows})
+    by_seed = {(*(r[k] for k in setting), r["seed"], r["step"]): r["grad_norm2"] for r in rows}
+    ratios: dict[tuple, list[float]] = defaultdict(list)
+    for k, g in by_seed.items():
+        if k[-1] == steps[0]:
+            ratios[k[:4]].append(by_seed[(*k[:-1], steps[-1])] / g)
+    shrank = sorted((statistics.median(v), k) for k, v in ratios.items())
+    shrank = [(v, k) for v, k in shrank if v < 1]
+    if not shrank:
+        raise prose.ClaimError("the median seed's gradient shrank in some setting")
+    big = max(r["n_qubits"] for r in rows)
+    deep = {
+        (*(s[k] for k in setting), s["step"]): s
+        for s in table(rows)
+        if s["n_qubits"] == big and s["reps"] > 1
+    }
+    below = [s for s in deep.values() if 2 * s["recovered"] < s["seeds"]]
+    if not below:
+        raise prose.ClaimError("some deep trained cell was recovered on fewer than half the seeds")
+    v, (task, n, reps, layers) = shrank[0]
+    return {
+        "TrainedShrankSettings": str(len(shrank)),
+        "TrainedShrankMin": f"{v:.2f}",
+        "TrainedShrankCircuit": f"{n}-qubit ${reps}\\times{layers}$",
+        "TrainedShrankTask": TASK_PROSE[task],
+        "TrainedDeepBelowHalf": str(len(below)),
+        "TrainedDeepCells": str(len(deep)),
+        "TrainedDeepCircuit": prose._one(
+            (f"{k[1]}-qubit ${k[2]}\\times{k[3]}$" for k in deep), "deep trained circuit"
+        ),
+    }
 
 
 def _batch_name(b: int) -> str:
@@ -466,34 +624,50 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--results", type=Path, default=Path("results"))
     ap.add_argument("--report", type=Path, default=Path("report"))
+    ap.add_argument("--spike", type=Path, default=Path("spike/results-2026-09-24.txt"))
     args = ap.parse_args(argv)
     rq1 = load([args.results / "rq1.jsonl"])
     rq2 = load([args.results / "rq2.jsonl"])
-    privacy_map(rq1, args.report / "figures" / "privacy-map.pdf")
+    budget_rows = load([args.results / "budget.jsonl"])
+    files = {
+        "rq1": rq1,
+        "rq2": rq2,
+        "budget": budget_rows,
+        "rq3": load([args.results / "rq3.jsonl"]),
+        "rq4": load([args.results / "rq4.jsonl"]),
+        "rq5": load([args.results / "rq5.jsonl"]),
+    }
     outcome_table(rq1, args.report / "tables" / "rq1.tex")
     shot_noise(rq2, args.report / "figures" / "shot-noise.pdf")
     shots_table(rq2, args.report / "tables" / "rq2.tex")
-    budget = args.results / "budget.jsonl"
-    if budget.exists():
-        budget_table(load([budget]), args.report / "tables" / "budget.tex")
-    macros: dict[str, str] = {}
-    rq3 = args.results / "rq3.jsonl"
-    if rq3.exists():
-        # Batch 1 of the same circuits is already in RQ1.
-        circuits = {(r["n_qubits"], r["reps"], r["layers"]) for r in load([rq3])}
-        base = [r for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) in circuits]
-        batch = base + load([rq3])
-        batch_map(batch, args.report / "figures" / "batch.pdf")
-        macros.update(batch_table(batch, args.report / "tables" / "rq3.tex"))
-    rq4 = args.results / "rq4.jsonl"
-    if rq4.exists():
-        macros.update(label_table(load([rq4]), args.report / "tables" / "rq4.tex"))
-    rq5, training = args.results / "rq5.jsonl", args.results / "rq5-training.jsonl"
-    if rq5.exists():
-        baselines = [r for r in map(json.loads, training.read_text().splitlines()) if "model" in r]
-        trained = load([rq5])
-        trained_map(trained, args.report / "figures" / "trained.pdf")
-        macros.update(trained_table(trained, baselines, args.report / "tables" / "rq5.tex"))
+    macros: dict[str, str] = {
+        **prose.design_macros(),
+        **prose.count_macros(files),
+        **prose.rq1_macros(rq1),
+        **prose.rq2_macros(rq2, rq1),
+        **prose.budget_macros(budget_rows, rq1),
+        **prose.spike_macros(args.spike),
+        **prose.compile_macros(args.results / "compile-time.jsonl"),
+    }
+    restarts = int(macros["Restarts"])
+    privacy_map(rq1, args.report / "figures" / "privacy-map.pdf", restarts)
+    budget_table(
+        budget_rows,
+        args.report / "tables" / "budget.tex",
+        (restarts, int(macros["BudgetRestarts"])),
+    )
+    # Batch 1 of the same circuits is already in RQ1.
+    circuits = {(r["n_qubits"], r["reps"], r["layers"]) for r in files["rq3"]}
+    batch = [r for r in rq1 if (r["n_qubits"], r["reps"], r["layers"]) in circuits] + files["rq3"]
+    batch_map(batch, args.report / "figures" / "batch.pdf", restarts)
+    macros.update(batch_table(batch, args.report / "tables" / "rq3.tex", restarts))
+    macros.update(label_table(files["rq4"], args.report / "tables" / "rq4.tex"))
+    training = args.results / "rq5-training.jsonl"
+    baselines = [r for r in map(json.loads, training.read_text().splitlines()) if "model" in r]
+    trained = files["rq5"]
+    trained_map(trained, args.report / "figures" / "trained.pdf")
+    macros.update(trained_table(trained, baselines, args.report / "tables" / "rq5.tex"))
+    macros.update(trained_cells(trained))
     write_macros(macros, args.report / "tables" / "numbers.tex")
 
 

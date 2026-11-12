@@ -20,6 +20,8 @@ EXPLAINS_SLACK = 1e-6
 # Tikhonov term, relative to the mean squared norm of the per-sample gradients, that keeps the
 # label-free solve defined when two of them are parallel. Far below EXPLAINS_SLACK.
 RIDGE = 1e-12
+# L-BFGS-B iterations per restart.
+MAXITER = 500
 
 
 def circular_error(x_hat, x_true) -> float:
@@ -105,7 +107,7 @@ def attack(
     x_true,
     restarts: int,
     rng: np.random.Generator,
-    maxiter: int = 500,
+    maxiter: int = MAXITER,
     label_known: bool = True,
 ) -> tuple[list[Restart], float]:
     """Run `restarts` L-BFGS-B searches from uniform[0, π) starts.
