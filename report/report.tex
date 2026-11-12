@@ -210,8 +210,8 @@ Each attack ends in one of four outcomes:
   exact match is out of reach, and a close reconstruction still reveals the input to within that
   angle.
   \item \emph{Ambiguous}: an input further away that matches the gradient at least as well as the
-  true one, $\mathcal L(\hat x) \le \mathcal L(x) + \ExplainsSlack\|g\|^2$ (the second term is the
-  \emph{slack}). For an exact gradient
+  true one, $\mathcal L(\hat x) \le \mathcal L(x) + \ExplainsSlack\|g\|^2$ (the second term on the right is
+  the \emph{slack}). For an exact gradient
   $\mathcal L(x) = 0$, so this is a second exact preimage.
   \item \emph{Stuck}: an end point (a local minimum, or the iteration limit) that matches worse
   than the true input.
@@ -528,9 +528,9 @@ Table~\ref{tab:rq5}.}
   $p \TrainedPooledPAll$ on the paired seeds. This pooled count nets out tasks that leaned opposite
   ways (below). The median per-seed ratio of the squared gradient norm, step \TrainedFinalStep{} to
   step 0, was \TrainedGradRatioMedian; per task it was \TrainedGradRatioLinear{} (linear),
-  \TrainedGradRatioCurvesTwo{} ($D = 2$) and \TrainedGradRatioCurvesTen{} ($D = 10$). The median
-  ratio was above 1 on every task and below 1 in \TrainedShrankSettings{} of the
-  \TrainedSettings{} settings, lowest \TrainedShrankMin{} for the \TrainedShrankCircuit{} circuit
+  \TrainedGradRatioCurvesTwo{} ($D = 2$) and \TrainedGradRatioCurvesTen{} ($D = 10$). The per-task
+  median was above 1 on every task; the per-setting median was below 1 in
+  \TrainedShrankSettings{} of the \TrainedSettings{} settings, lowest \TrainedShrankMin{} for the \TrainedShrankCircuit{} circuit
   on \TrainedShrankTask.
   \item \textbf{The $1\times4$ circuits stayed mostly recoverable.} Every $1\times4$ setting was
   recovered on at least \TrainedShallowMinRecovered{} of \Seeds{} seeds at every step. The lowest
@@ -570,7 +570,7 @@ iterations from \Restarts{} starts, solving for all features jointly; theirs run
 from 10 starts on one feature. With a single input, the $1\times\ell$ results agree with
 Papadopoulos et al.~\cite{papadopoulos2025}: once the trainable block gave more gradient equations
 than unknowns, the attack succeeded on every seed. The equation count alone does not decide it:
-at the same count, the largest $r$ on every line was stuck on more seeds, and each doubling of $r$
+at the same count, the largest $r$ on every line was stuck on more seeds than $r = 1$, and each doubling of $r$
 lowered the per-restart success (Fig.~\ref{fig:map}, Section~\ref{sec:rq1}). With
 batches at 8 qubits, some seeds got stuck
 below that point (Section~\ref{sec:rq3}).
